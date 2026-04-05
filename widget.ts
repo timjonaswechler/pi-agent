@@ -1,7 +1,7 @@
-// TUI Widgets for interactive-team
+// TUI Widgets for pi-agent
 
 import type ExtensionAPI from '@mariozechner/pi-coding-agent';
-import { Text, Box } from '@mariozechner/pi-tui';
+import { Text, Box, Container } from '@mariozechner/pi-tui';
 
 interface SubagentStatus {
   id: string;
@@ -14,11 +14,15 @@ interface SubagentStatus {
 // Active subagent widgets
 const activeWidgets = new Map<string, SubagentStatus>();
 
-export function updateSubagentStatus(
-  sessionId: string,
-  status: SubagentStatus
-): void {
+let extensionApi: ExtensionAPI | null = null;
+
+export function updateSubagentStatus(sessionId: string, status: SubagentStatus): void {
   activeWidgets.set(sessionId, status);
+  
+  // If widget is registered, trigger a render update
+  if (extensionApi) {
+    extensionApi.emit('widget:update', { sessionId, status });
+  }
 }
 
 export function removeSubagentWidget(sessionId: string): void {
@@ -44,6 +48,14 @@ export function renderSubagentCard(status: SubagentStatus): string {
   return `${statusColor}●${status.name}\x1b[0m ${elapsed}${lastQ ? ` | ${lastQ}` : ''}`;
 }
 
+export function renderPollingStatus(): string {
+  const active = getActiveSubagents();
+  if (active.length === 0) return '';
+
+  const cards = active.map(renderSubagentCard).join('  ');
+  return `\n🔄 Polling ${active.length} subagent(s): ${cards}\n`;
+}
+
 function formatElapsed(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
@@ -59,12 +71,17 @@ function truncate(str: string, max: number): string {
 }
 
 export function registerWidget(api: ExtensionAPI): void {
-  // Register a footer/header widget showing active subagents
-  api.onEvent('render', () => {
-    const subagents = getActiveSubagents();
-    if (subagents.length === 0) return;
+  extensionApi = api;
 
-    const cards = subagents.map(renderSubagentCard).join('  ');
-    // This would render in the TUI - actual implementation depends on Pi's widget API
+  // Register handler for widget update events
+  api.onEvent('widget:update', () => {
+    // Trigger UI update
+  });
+
+  // Show startup notification
+  api.onEvent('session_start', async (_event, ctx) => {
+    if (ctx?.hasUI) {
+      ctx.ui.notify('pi-agent extension loaded', 'info');
+    }
   });
 }

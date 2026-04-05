@@ -1,4 +1,4 @@
-// Main entry point for interactive-team extension
+// Main entry point for pi-agent extension
 
 import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
 import { Type } from '@sinclair/typebox';
@@ -49,6 +49,10 @@ export function registerExtension(api: ExtensionAPI): void {
       const { agentName, task, mode, managerSessionId } = params;
       const subagentState = spawn.spawnSubagent(agentName, task, mode, managerSessionId);
       activeSubagents.set(subagentState.sessionId, subagentState);
+
+      // Start polling for this subagent's session file
+      startSubagentPolling(subagentState.sessionId, api);
+
       emitBridgeEvent({
         type: 'subagent_complete', // placeholder
         subagentId: subagentState.subagentId,
@@ -76,11 +80,63 @@ export function registerExtension(api: ExtensionAPI): void {
     widget.registerWidget(api);
   });
 
-  // Cleanup on session end
-  api.onEvent('session_end', () => {
+  // Cleanup on session shutdown
+  api.onEvent('session_shutdown', () => {
     activeSubagents.clear();
+    session.stopAllPolling();
     eventHandlers.length = 0;
   });
+}
+
+// ============================================
+// POLLING LOGIC
+// ============================================
+
+const POLL_INTERVAL_MS = 1000; // Poll every 1 second
+
+function startSubagentPolling(sessionId: string, api: ExtensionAPI): void {
+  session.startPolling(sessionId, {
+    intervalMs: POLL_INTERVAL_MS,
+    onChange: (state, changed) => {
+      // Update widget with new state
+      widget.updateSubagentStatus(sessionId, {
+        id: sessionId,
+        name: state.subagentId,
+        status: mapStatus(state.status),
+        lastQuestion: state.pendingQuestions[state.pendingQuestions.length - 1]?.question,
+        elapsed: Date.now() - state.lastActivity,
+      });
+
+      // If there are pending user questions, show widget
+      const userQuestion = state.pendingQuestions.find(q => q.type === 'user' && !q.answer);
+      if (userQuestion) {
+        userBridge.handleUserQuestion(sessionId, userQuestion, api);
+      }
+    },
+    onAnswer: (questionId, answer) => {
+      // Notify that an answer is available
+      emitBridgeEvent({
+        type: 'answer_received',
+        subagentId: sessionId,
+        payload: { questionId, answer },
+        timestamp: Date.now(),
+      });
+    },
+  });
+}
+
+function mapStatus(status: session.SessionState['status']): 'idle' | 'running' | 'waiting' | 'done' | 'error' {
+  switch (status) {
+    case 'waiting_manager':
+    case 'waiting_user':
+      return 'waiting';
+    case 'complete':
+      return 'done';
+    case 'error':
+      return 'error';
+    default:
+      return status as 'idle' | 'running';
+  }
 }
 
 export default registerExtension;

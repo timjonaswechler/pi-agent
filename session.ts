@@ -4,14 +4,20 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import type { SessionState, PendingQuestion } from './types';
 
-const SESSION_DIR = join(process.env.HOME || '', '.pi', 'interactive-team', 'sessions');
+const SESSION_DIR = join(process.env.HOME || '', '.pi', 'pi-agent', 'sessions');
 
 // Ensure session directory exists
 function ensureSessionDir(): void {
-  // Lazy init - this will be called on first use
+  try {
+    const { mkdirSync } = require('fs');
+    mkdirSync(SESSION_DIR, { recursive: true });
+  } catch {
+    // Directory might already exist
+  }
 }
 
 export function getSessionFilePath(sessionId: string): string {
+  ensureSessionDir();
   return join(SESSION_DIR, `${sessionId}.json`);
 }
 
@@ -80,4 +86,89 @@ export function answerQuestion(sessionId: string, questionId: string, answer: st
       writeSession(state);
     }
   }
+}
+
+// ============================================
+// POLLING MECHANISM
+// ============================================
+
+export type PollCallback = (state: SessionState, changed: boolean) => void;
+
+interface PollingConfig {
+  intervalMs: number;
+  onChange: PollCallback;
+  onAnswer?: (questionId: string, answer: string) => void;
+}
+
+const activePollers = new Map<string, {
+  intervalId: ReturnType<typeof setInterval>;
+  lastActivity: number;
+  lastContent: string;
+}>();
+
+export function startPolling(sessionId: string, config: PollingConfig): void {
+  // Clean up any existing poller for this session
+  stopPolling(sessionId);
+
+  // Get initial state
+  const initialState = readSession(sessionId);
+  const lastActivity = initialState?.lastActivity ?? 0;
+  const lastContent = initialState ? JSON.stringify(initialState.pendingQuestions) : '';
+
+  // Create poller
+  const intervalId = setInterval(() => {
+    const state = readSession(sessionId);
+    if (!state) {
+      stopPolling(sessionId);
+      return;
+    }
+
+    const currentContent = JSON.stringify(state.pendingQuestions);
+    const changed = currentContent !== lastContent || state.lastActivity > lastActivity;
+
+    // Check for new answers
+    if (config.onAnswer && state.pendingQuestions) {
+      const questions = state.pendingQuestions;
+      for (const q of questions) {
+        if (q.answer && q.answeredAt && q.answeredAt > lastActivity) {
+          config.onAnswer(q.id, q.answer);
+        }
+      }
+    }
+
+    // Trigger callback
+    config.onChange(state, changed);
+
+    // Update tracking
+    activePollers.set(sessionId, {
+      intervalId,
+      lastActivity: state.lastActivity,
+      lastContent: currentContent,
+    });
+  }, config.intervalMs);
+
+  // Store poller info
+  activePollers.set(sessionId, {
+    intervalId,
+    lastActivity,
+    lastContent,
+  });
+}
+
+export function stopPolling(sessionId: string): void {
+  const poller = activePollers.get(sessionId);
+  if (poller) {
+    clearInterval(poller.intervalId);
+    activePollers.delete(sessionId);
+  }
+}
+
+export function stopAllPolling(): void {
+  for (const sessionId of activePollers.keys()) {
+    stopPolling(sessionId);
+  }
+}
+
+export function isPolling(sessionId: string): boolean {
+  return activePollers.has(sessionId);
 }

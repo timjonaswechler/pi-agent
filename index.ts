@@ -54,7 +54,7 @@ export function registerExtension(api: ExtensionAPI): void {
     (questionId, answer) => {
       emitBridgeEvent({
         type: 'answer_received',
-        subagentId: 'unknown', // Will be set by who calls this
+        subagentId: 'unknown',
         payload: { questionId, answer },
         timestamp: Date.now(),
       });
@@ -64,32 +64,65 @@ export function registerExtension(api: ExtensionAPI): void {
   // Register commands
   commands.register(api);
 
-  // Register tools
+  // Register all tools
+  registerTools(api);
+
+  // Register widget
+  api.onEvent('session_start', () => {
+    widget.registerWidget(api);
+  });
+
+  // Cleanup on session shutdown
+  api.onEvent('session_shutdown', () => {
+    activeSubagents.clear();
+    session.stopAllPolling();
+    managerBridge.cleanupManagerBridge();
+    eventHandlers.length = 0;
+  });
+}
+
+// ============================================
+// TOOL REGISTRATION
+// ============================================
+
+function registerTools(api: ExtensionAPI): void {
+  // Tool: Spawn interactive subagent
   api.registerTool({
     name: 'spawn_interactive_subagent',
     description: 'Spawn a subagent that can communicate with user or manager',
     params: Type.Object({
-      agentName: Type.String(),
-      task: Type.String(),
-      mode: Type.Union([Type.Literal('user'), Type.Literal('manager')]),
-      managerSessionId: Type.Optional(Type.String()),
+      agentName: Type.String({ description: 'Name of the agent to spawn' }),
+      task: Type.String({ description: 'Task for the subagent' }),
+      mode: Type.Union([
+        Type.Literal('user'),
+        Type.Literal('manager'),
+      ], { description: 'user=direct to user, manager=via manager' }),
+      managerSessionId: Type.Optional(Type.String({ description: 'Parent session ID for manager mode' })),
     }),
     handler: async (params) => {
       const { agentName, task, mode, managerSessionId } = params;
+      
+      // Spawn the subagent
       const subagentState = spawn.spawnSubagent(agentName, task, mode, managerSessionId);
       activeSubagents.set(subagentState.sessionId, subagentState);
 
+      // If manager mode, track it
+      if (mode === 'manager') {
+        managerBridge.setManagerMode(subagentState.sessionId, true);
+      }
+
       emitBridgeEvent({
-        type: 'subagent_complete', // placeholder
+        type: 'subagent_complete',
         subagentId: subagentState.subagentId,
         payload: subagentState,
         timestamp: Date.now(),
       });
+
       return {
         content: [
           {
             type: 'text',
-            text: `Spawned subagent: ${subagentState.sessionId}`,
+            text: `Spawned subagent: ${subagentState.sessionId} (${agentName}, mode: ${mode})`,
           },
         ],
       };
@@ -101,17 +134,8 @@ export function registerExtension(api: ExtensionAPI): void {
     managerBridge.handleManagerQuestion(sessionId, question, api);
   });
 
-  // Register widget
-  api.onEvent('session_start', () => {
-    widget.registerWidget(api);
-  });
-
-  // Cleanup on session shutdown
-  api.onEvent('session_shutdown', () => {
-    activeSubagents.clear();
-    session.stopAllPolling();
-    eventHandlers.length = 0;
-  });
+  // Register manager bridge tools
+  managerBridge.registerManagerBridge(api);
 }
 
 // ============================================

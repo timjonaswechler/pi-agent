@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import * as session from '../session';
-import * as managerBridge from '../manager-bridge';
+import * as session from '../src/session/session';
+import * as managerBridge from '../src/bridge/manager';
 import * as fs from 'fs';
 import * as path from 'path';
 

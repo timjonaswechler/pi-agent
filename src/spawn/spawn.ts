@@ -2,8 +2,8 @@
 
 import { spawn as childSpawn } from 'child_process';
 import { join } from 'path';
-import * as session from './session';
-import type { SubagentConfig } from './types';
+import * as session from '../session/session';
+import type { SubagentConfig } from '../types';
 
 export interface SpawnResult {
   sessionId: string;

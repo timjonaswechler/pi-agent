@@ -4,13 +4,13 @@ import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
 import { Type } from '@sinclair/typebox';
 
 // Import all modules
-import * as session from './session';
-import * as spawn from './spawn';
-import * as userBridge from './user-bridge';
-import * as managerBridge from './manager-bridge';
-import * as widget from './widget';
-import * as commands from './commands';
-import * as askManager from './ask-manager';
+import * as session from './session/session';
+import * as spawn from './spawn/spawn';
+import * as userBridge from './bridge/user-bridge';
+import * as managerBridge from './bridge/manager';
+import * as widget from './widget/widget';
+import * as commands from './commands/commands';
+import * as askManager from './ask-manager/ask-manager';
 
 // Export types and utilities
 export * from './types';

@@ -1,8 +1,8 @@
 // User ↔ Subagent Bridge (Scenario 1)
 
 import type ExtensionAPI from '@mariozechner/pi-coding-agent';
-import * as session from './session';
-import type { PendingQuestion } from './types';
+import * as session from '../session/session';
+import type { PendingQuestion } from '../types';
 
 let currentWidget: unknown = null;
 

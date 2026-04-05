@@ -2,8 +2,8 @@
 
 import type ExtensionAPI from '@mariozechner/pi-coding-agent';
 import { Type } from '@sinclair/typebox';
-import * as session from './session';
-import type { PendingQuestion } from './types';
+import * as session from '../session/session';
+import type { PendingQuestion } from '../types';
 
 // Track which sessions are in "manager mode"
 const managerModeSessions = new Set<string>();

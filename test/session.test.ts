@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as session from '../session';
+import * as session from '../src/session/session';
 
 // Test session directory (set in setup.ts)
 const TEST_SESSION_DIR = '/tmp/pi-agent-test-sessions';

@@ -4,7 +4,8 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import type { SessionState, PendingQuestion } from './types';
 
-const SESSION_DIR = join(process.env.HOME || '', '.pi', 'pi-agent', 'sessions');
+const SESSION_DIR = process.env.PI_AGENT_SESSION_DIR || 
+  join(process.env.HOME || '', '.pi', 'pi-agent', 'sessions');
 
 // ============================================
 // POLLING MECHANISM (On-Demand)

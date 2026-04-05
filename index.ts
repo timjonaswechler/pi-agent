@@ -32,6 +32,35 @@ function emitBridgeEvent(event: import('./types').BridgeEvent): void {
 }
 
 export function registerExtension(api: ExtensionAPI): void {
+  // Set up global poll callbacks (needed for session polling)
+  session.setGlobalPollCallbacks(
+    // onChange - update widget when session changes
+    (state) => {
+      widget.updateSubagentStatus(state.sessionId, {
+        id: state.sessionId,
+        name: state.subagentId,
+        status: mapStatus(state.status),
+        lastQuestion: state.pendingQuestions[state.pendingQuestions.length - 1]?.question,
+        elapsed: Date.now() - state.lastActivity,
+      });
+
+      // If there are pending user questions, show widget
+      const userQuestion = state.pendingQuestions.find(q => q.type === 'user' && !q.answer);
+      if (userQuestion) {
+        userBridge.handleUserQuestion(state.sessionId, userQuestion, api);
+      }
+    },
+    // onAnswer - notify when answer is received
+    (questionId, answer) => {
+      emitBridgeEvent({
+        type: 'answer_received',
+        subagentId: 'unknown', // Will be set by who calls this
+        payload: { questionId, answer },
+        timestamp: Date.now(),
+      });
+    }
+  );
+
   // Register commands
   commands.register(api);
 
@@ -50,9 +79,6 @@ export function registerExtension(api: ExtensionAPI): void {
       const subagentState = spawn.spawnSubagent(agentName, task, mode, managerSessionId);
       activeSubagents.set(subagentState.sessionId, subagentState);
 
-      // Start polling for this subagent's session file
-      startSubagentPolling(subagentState.sessionId, api);
-
       emitBridgeEvent({
         type: 'subagent_complete', // placeholder
         subagentId: subagentState.subagentId,
@@ -63,7 +89,7 @@ export function registerExtension(api: ExtensionAPI): void {
         content: [
           {
             type: 'text',
-            text: `Spawned subagent: ${subagentState.subagentId}`,
+            text: `Spawned subagent: ${subagentState.sessionId}`,
           },
         ],
       };
@@ -89,41 +115,8 @@ export function registerExtension(api: ExtensionAPI): void {
 }
 
 // ============================================
-// POLLING LOGIC
+// STATUS MAPPING
 // ============================================
-
-const POLL_INTERVAL_MS = 1000; // Poll every 1 second
-
-function startSubagentPolling(sessionId: string, api: ExtensionAPI): void {
-  session.startPolling(sessionId, {
-    intervalMs: POLL_INTERVAL_MS,
-    onChange: (state, changed) => {
-      // Update widget with new state
-      widget.updateSubagentStatus(sessionId, {
-        id: sessionId,
-        name: state.subagentId,
-        status: mapStatus(state.status),
-        lastQuestion: state.pendingQuestions[state.pendingQuestions.length - 1]?.question,
-        elapsed: Date.now() - state.lastActivity,
-      });
-
-      // If there are pending user questions, show widget
-      const userQuestion = state.pendingQuestions.find(q => q.type === 'user' && !q.answer);
-      if (userQuestion) {
-        userBridge.handleUserQuestion(sessionId, userQuestion, api);
-      }
-    },
-    onAnswer: (questionId, answer) => {
-      // Notify that an answer is available
-      emitBridgeEvent({
-        type: 'answer_received',
-        subagentId: sessionId,
-        payload: { questionId, answer },
-        timestamp: Date.now(),
-      });
-    },
-  });
-}
 
 function mapStatus(status: session.SessionState['status']): 'idle' | 'running' | 'waiting' | 'done' | 'error' {
   switch (status) {

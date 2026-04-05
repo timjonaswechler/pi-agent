@@ -1,9 +1,10 @@
-# Interactive Team Extension
+# Pi Agent Extension
 
-Extension für Pi, die Subagent-Orchestrierung mit interaktivem Bridge-System ermöglicht.
+Extension für Pi, die Agent-Spawning und Team-Orchestrierung mit interaktivem Bridge-System ermöglicht.
 
 ## Features
 
+- **Agent Spawning**: Manuelles Starten von spezialisierten Subagents
 - **Scenario 1**: User ↔ Subagent (direkte Kommunikation)
 - **Scenario 2**: Manager ↔ Subagent (Manager als zentraler Ansprechpartner)
 - **Session-basierte Kommunikation** — Main Pi Context bleibt sauber
@@ -12,7 +13,7 @@ Extension für Pi, die Subagent-Orchestrierung mit interaktivem Bridge-System er
 ## Architektur
 
 ```
-interactive-team/
+pi-agent/
 ├── index.ts              # Main entry point
 ├── types.ts              # Type definitions
 ├── session.ts            # Session file read/write

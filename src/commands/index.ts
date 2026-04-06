@@ -206,7 +206,7 @@ export function registerCommands(api: ExtensionAPI): void {
       // Inject team context as system message
       const team = teams[selected];
       
-      // Build rich member list with descriptions
+      // Build member details list with descriptions
       const memberDetails = team.members
         .map(member => {
           const info = getAgentInfo(member, ctx.cwd);
@@ -217,20 +217,25 @@ export function registerCommands(api: ExtensionAPI): void {
         })
         .join('\n');
       
-      // Get team leader's system prompt
-      let leaderPrompt = '';
+      // Build comma-separated member names
+      const memberNames = team.members.join(', ');
+      
+      // Get team leader's system prompt and replace placeholders
+      let finalPrompt = '';
       if (team.manager) {
         const leaderInfo = getAgentInfo(team.manager, ctx.cwd);
         if (leaderInfo?.systemPrompt) {
-          leaderPrompt = `\n\nYour role as Team Manager:\n${leaderInfo.systemPrompt}`;
+          finalPrompt = leaderInfo.systemPrompt
+            .replace(/{TEAM_NAME}/g, selected)
+            .replace(/{MEMBERS_LIST}/g, memberDetails)
+            .replace(/{MEMBER_NAMES}/g, memberNames);
         }
       }
       
-      const systemMessage = `[TEAM MODE] You are now the Team Manager for "${selected}".${leaderPrompt}
-
-Available team members:\n${memberDetails}
-
-Use the run_subagents tool to delegate tasks to team members.`;
+      const systemMessage = finalPrompt || 
+        `[TEAM MODE] You are the Team Manager for "${selected}".\n\n` +
+        `Team members:\n${memberDetails}\n\n` +
+        `Use run_subagents to delegate tasks.`;
       
       api.sendMessage({
         role: 'system',

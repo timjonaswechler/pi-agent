@@ -27,6 +27,7 @@ export function findAgentFile(agentName: string, cwd: string): string | null {
   const teamsLeadersPaths = [
     join(extRoot, 'teams', 'leaders'),
     join(home, '.pi', 'teams', 'leaders'),
+    join(cwd, '.pi', 'teams', 'leaders'),  // Local project level
   ];
 
   const searchPaths: string[] = [];

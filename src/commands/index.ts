@@ -23,33 +23,37 @@ interface TeamConfig {
 type TeamsYaml = Record<string, TeamConfig>;
 
 export function loadTeamsYaml(cwd: string): TeamsYaml | null {
-  const searchPaths = [
-    join(cwd, '.pi', 'agents', 'teams.yaml'),
-    join(process.env.HOME || '', '.pi', 'agents', 'teams.yaml'),
-    join(cwd, '.pi', 'agent-team', 'teams.yaml'),
-    join(process.env.HOME || '', '.pi', 'agent-team', 'teams.yaml'),
+  // Search paths (lowest to highest priority)
+  const home = process.env.HOME || '';
+  const searchPaths: Array<{ path: string; priority: number }> = [
+    { path: join(__dirname, 'teams', 'teams.yaml'), priority: 1 },  // Built-in (lowest)
+    { path: join(home, '.pi', 'teams', 'teams.yaml'), priority: 2 },  // Global
+    { path: join(cwd, '.pi', 'teams', 'teams.yaml'), priority: 3 },   // Local (highest)
   ];
 
-  let yamlContent: string | null = null;
+  // Collect all teams, higher priority wins
+  const teams: TeamsYaml = {};
+  let foundAny = false;
 
-  for (const path of searchPaths) {
+  for (const { path, priority } of searchPaths) {
     if (existsSync(path)) {
-      yamlContent = readFileSync(path, 'utf-8');
-      break;
+      foundAny = true;
+      const content = readFileSync(path, 'utf-8');
+      const parsed = parseTeamsYaml(content);
+      
+      // Merge, but higher priority overwrites lower
+      for (const [name, config] of Object.entries(parsed)) {
+        if (!teams[name] || priority >= 2) {  // Global/Local always overwrites built-in
+          teams[name] = config;
+        }
+      }
     }
   }
 
-  if (!yamlContent) return null;
-
-  // Try to detect format and parse accordingly
-  if (yamlContent.includes('teams:')) {
-    return parseFlatTeamsYaml(yamlContent);
-  } else {
-    return parseHierarchicalTeamsYaml(yamlContent);
-  }
+  return foundAny && Object.keys(teams).length > 0 ? teams : null;
 }
 
-function parseHierarchicalTeamsYaml(yamlContent: string): TeamsYaml {
+function parseTeamsYaml(yamlContent: string): TeamsYaml {
   const teams: TeamsYaml = {};
   let currentTeam: string | null = null;
 
@@ -61,40 +65,9 @@ function parseHierarchicalTeamsYaml(yamlContent: string): TeamsYaml {
     if (trimmed.endsWith(':')) {
       currentTeam = trimmed.slice(0, -1).trim();
       teams[currentTeam] = { manager: '', members: [] };
-      continue;
-    }
-
-    if (!currentTeam) continue;
-
-    if (trimmed.startsWith('manager:')) {
+    } else if (currentTeam && trimmed.startsWith('manager:')) {
       teams[currentTeam].manager = trimmed.replace('manager:', '').trim();
-    } else if (trimmed.startsWith('-')) {
-      const member = trimmed.substring(1).trim();
-      if (member) teams[currentTeam].members.push(member);
-    }
-  }
-
-  return teams;
-}
-
-function parseFlatTeamsYaml(yamlContent: string): TeamsYaml {
-  const teams: TeamsYaml = {};
-  let currentTeam: string | null = null;
-
-  for (const line of yamlContent.split('\n')) {
-    if (!line.trim() || line.trim().startsWith('#')) continue;
-    
-    const trimmed = line.trim();
-    
-    // Skip the 'teams:' root key
-    if (trimmed === 'teams:') continue;
-    
-    // Team name (indented, no colon, not starting with dash)
-    if (!trimmed.startsWith('-') && !trimmed.includes(':')) {
-      currentTeam = trimmed;
-      teams[currentTeam] = { manager: '', members: [] };
-    } else if (trimmed.startsWith('-') && currentTeam) {
-      // Member line
+    } else if (currentTeam && trimmed.startsWith('-')) {
       const member = trimmed.substring(1).trim();
       if (member) teams[currentTeam].members.push(member);
     }

@@ -1,25 +1,34 @@
-// Main entry point for pi-agent extension
+// ============================================
+// PI-AGENT: UNIFIED SUBAGENT ORCHESTRATION
+// ============================================
+// 
+// A single extension that combines:
+// - /agent, /team, /list, /kill commands
+// - run_subagents, ask_manager_question tools
+// - User and Manager bridge for question handling
+// - On-demand polling for session file changes
+//
+// Usage: pi -e extensions/pi-agent/src/index.ts
+// ============================================
 
 import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
-import { Type } from '@sinclair/typebox';
+import { Text, Container } from '@mariozechner/pi-tui';
 
-// Import all modules
-import * as session from './session/session';
-import * as spawn from './spawn/spawn';
-import * as userBridge from './bridge/user-bridge';
+// Modules
+import * as session from './session';
+import * as commands from './commands';
+import * as tools from './tools';
 import * as managerBridge from './bridge/manager';
-import * as widget from './widget/widget';
-import * as commands from './commands/commands';
-import * as askManager from './ask-manager/ask-manager';
+import * as userBridge from './bridge/user';
+import * as spawn from './spawn';
 
-// Export types and utilities
+// Types
 export * from './types';
-export { session, spawn, userBridge, managerBridge, widget, askManager };
 
-// Active subagents tracking
-const activeSubagents = new Map<string, session.SessionState>();
+// ============================================
+// BRIDGE EVENT HANDLING
+// ============================================
 
-// Event emitter for bridge events
 type BridgeEventHandler = (event: import('./types').BridgeEvent) => void;
 const eventHandlers: BridgeEventHandler[] = [];
 
@@ -31,29 +40,29 @@ function emitBridgeEvent(event: import('./types').BridgeEvent): void {
   eventHandlers.forEach(handler => handler(event));
 }
 
-export function registerExtension(api: ExtensionAPI): void {
-  // Set up global poll callbacks (needed for session polling)
-  session.setGlobalPollCallbacks(
-    // onChange - update widget when session changes
-    (state) => {
-      widget.updateSubagentStatus(state.sessionId, {
-        id: state.sessionId,
-        name: state.subagentId,
-        status: mapStatus(state.status),
-        lastQuestion: state.pendingQuestions[state.pendingQuestions.length - 1]?.question,
-        elapsed: Date.now() - state.lastActivity,
-      });
+// ============================================
+// MAIN EXTENSION
+// ============================================
 
-      // If there are pending user questions, show widget
+export function registerExtension(api: ExtensionAPI): void {
+  // Set up user bridge API reference
+  userBridge.setApi(api);
+
+  // Set up global poll callbacks
+  session.setGlobalPollCallbacks(
+    // onChange - update status
+    (state) => {
+      // Check for user questions and notify
       const userQuestion = state.pendingQuestions.find(q => q.type === 'user' && !q.answer);
       if (userQuestion) {
-        userBridge.handleUserQuestion(state.sessionId, userQuestion, api);
+        userBridge.handleUserQuestion(state.sessionId, userQuestion);
       }
     },
-    // onAnswer - notify when answer is received
-    (questionId, answer) => {
+    // onAnswer - emit event
+    (sessionId, questionId, answer) => {
       emitBridgeEvent({
         type: 'answer_received',
+        sessionId,
         subagentId: 'unknown',
         payload: { questionId, answer },
         timestamp: Date.now(),
@@ -61,99 +70,69 @@ export function registerExtension(api: ExtensionAPI): void {
     }
   );
 
-  // Register commands
-  commands.register(api);
+  // Register event handler for manager bridge
+  managerBridge.onManagerEvent((event) => {
+    emitBridgeEvent(event);
+  });
+
+  // Register commands: /agent, /team, /list, /kill
+  commands.registerCommands(api);
 
   // Register all tools
-  registerTools(api);
+  tools.registerAllTools(api);
 
-  // Register widget
-  api.onEvent('session_start', () => {
-    widget.registerWidget(api);
+  // Register message renderer for agent results
+  api.registerMessageRenderer('agent-result', (message, options, theme) => {
+    const details = message.details as {
+      agent: string;
+      task: string;
+      output: string;
+      error?: string;
+    };
+
+    let text = theme.fg('accent', `[Agent: ${details.agent}] `) +
+               theme.bold(details.task) + '\n\n';
+
+    if (details.error) {
+      text += theme.fg('red', `Error: ${details.error}\n`);
+    }
+
+    if (options.expanded) {
+      text += theme.fg('dim', details.output.trim());
+    } else {
+      const lines = details.output.trim().split('\n');
+      const preview = lines.slice(0, 3).join('\n');
+      text += theme.fg('dim', preview + (lines.length > 3 ? '\n...' : ''));
+    }
+
+    return new Text(text, 0, 0);
+  });
+
+  // Filter agent-result messages from context to avoid polluting main agent
+  api.on('context', async (event, ctx) => {
+    const filteredMessages = event.messages.filter(
+      (m) => m.customType !== 'agent-result'
+    );
+    return { messages: filteredMessages };
   });
 
   // Cleanup on session shutdown
-  api.onEvent('session_shutdown', () => {
-    activeSubagents.clear();
+  api.on('session_shutdown', () => {
     session.stopAllPolling();
     managerBridge.cleanupManagerBridge();
     eventHandlers.length = 0;
   });
-}
 
-// ============================================
-// TOOL REGISTRATION
-// ============================================
-
-function registerTools(api: ExtensionAPI): void {
-  // Tool: Spawn interactive subagent
-  api.registerTool({
-    name: 'spawn_interactive_subagent',
-    description: 'Spawn a subagent that can communicate with user or manager',
-    params: Type.Object({
-      agentName: Type.String({ description: 'Name of the agent to spawn' }),
-      task: Type.String({ description: 'Task for the subagent' }),
-      mode: Type.Union([
-        Type.Literal('user'),
-        Type.Literal('manager'),
-      ], { description: 'user=direct to user, manager=via manager' }),
-      managerSessionId: Type.Optional(Type.String({ description: 'Parent session ID for manager mode' })),
-    }),
-    handler: async (params) => {
-      const { agentName, task, mode, managerSessionId } = params;
-      
-      // Spawn the subagent
-      const subagentState = spawn.spawnSubagent(agentName, task, mode, managerSessionId);
-      activeSubagents.set(subagentState.sessionId, subagentState);
-
-      // If manager mode, track it
-      if (mode === 'manager') {
-        managerBridge.setManagerMode(subagentState.sessionId, true);
-      }
-
-      emitBridgeEvent({
-        type: 'subagent_complete',
-        subagentId: subagentState.subagentId,
-        payload: subagentState,
-        timestamp: Date.now(),
-      });
-
-      return {
-        content: [
-          {
-            type: 'text',
-            text: `Spawned subagent: ${subagentState.sessionId} (${agentName}, mode: ${mode})`,
-          },
-        ],
-      };
-    },
+  // Startup notification
+  api.on('session_start', async (_event, ctx) => {
+    if (ctx?.hasUI) {
+      ctx.ui.notify('pi-agent loaded - /agent, /team, /list, /kill', 'info');
+    }
   });
-
-  // Register ask_manager_question tool
-  askManager.register(api, (sessionId, question) => {
-    managerBridge.handleManagerQuestion(sessionId, question, api);
-  });
-
-  // Register manager bridge tools
-  managerBridge.registerManagerBridge(api);
 }
 
 // ============================================
-// STATUS MAPPING
+// DEFAULT EXPORT
 // ============================================
-
-function mapStatus(status: session.SessionState['status']): 'idle' | 'running' | 'waiting' | 'done' | 'error' {
-  switch (status) {
-    case 'waiting_manager':
-    case 'waiting_user':
-      return 'waiting';
-    case 'complete':
-      return 'done';
-    case 'error':
-      return 'error';
-    default:
-      return status as 'idle' | 'running';
-  }
-}
 
 export default registerExtension;

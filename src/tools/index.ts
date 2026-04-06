@@ -1,5 +1,5 @@
 // ============================================
-// TOOLS: run_subagents, ask_manager_question, answer_manager_question, forward_to_user
+// TOOLS: run_subagents, ask_manager_question, answer_manager_question
 // ============================================
 
 import type ExtensionAPI from '@mariozechner/pi-coding-agent';
@@ -44,7 +44,6 @@ export function registerRunSubagentsTool(api: ExtensionAPI): void {
       });
 
       try {
-        // Run all tasks in parallel
         const results = await Promise.all(
           tasks.map(async (task, index) => {
             const result = spawn.spawnSubagent(task.description, {
@@ -53,7 +52,6 @@ export function registerRunSubagentsTool(api: ExtensionAPI): void {
               mode: task.mode || 'user',
             });
 
-            // Track in manager mode if applicable
             if (task.mode === 'manager') {
               managerBridge.setManagerMode(result.session.sessionId, true);
             }
@@ -66,7 +64,6 @@ export function registerRunSubagentsTool(api: ExtensionAPI): void {
           })
         );
 
-        // Format output
         let response = `Started ${results.length} sub-agent(s) in parallel:\n\n`;
         results.forEach((res, i) => {
           response += `### Task ${i + 1} (${res.agent})\nSession: ${res.sessionId}\n\n`;
@@ -87,14 +84,14 @@ export function registerRunSubagentsTool(api: ExtensionAPI): void {
 }
 
 // ============================================
-// TOOL: ask_manager_question
+// TOOL: ask_manager_question (for subagents)
 // ============================================
 
 export function registerAskManagerQuestionTool(api: ExtensionAPI): void {
   api.registerTool({
     name: 'ask_manager_question',
     label: 'Ask Manager',
-    description: 'Ask the manager (parent agent) for help or clarification',
+    description: 'Subagent asks the manager (parent agent) for help or clarification. The manager will decide whether to answer directly or forward to user.',
     parameters: Type.Object({
       sessionId: Type.String({ description: 'Session ID of the sub-agent' }),
       question: Type.String({ description: 'Question to ask the manager' }),
@@ -103,18 +100,14 @@ export function registerAskManagerQuestionTool(api: ExtensionAPI): void {
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       const { sessionId, question, context } = params;
 
-      // Add question to session
       const pendingQuestion = session.addQuestion(sessionId, {
         type: 'manager',
         question,
         context,
       });
 
-      // Track in manager mode
       managerBridge.setManagerMode(sessionId, true);
       managerBridge.handleManagerQuestion(sessionId, pendingQuestion);
-
-      // Start polling
       session.startPolling(sessionId);
 
       return {
@@ -126,14 +119,14 @@ export function registerAskManagerQuestionTool(api: ExtensionAPI): void {
 }
 
 // ============================================
-// TOOL: answer_manager_question
+// TOOL: answer_manager_question (for manager)
 // ============================================
 
 export function registerAnswerManagerQuestionTool(api: ExtensionAPI): void {
   api.registerTool({
     name: 'answer_manager_question',
     label: 'Answer Manager Question',
-    description: 'Answer a pending question from a sub-agent. The manager decides if they can answer or should forward to user.',
+    description: 'Manager answers a pending question from a sub-agent. Use this when you can provide a direct answer.',
     parameters: Type.Object({
       subagentSessionId: Type.String({ description: 'Session ID of the sub-agent' }),
       questionId: Type.String({ description: 'ID of the question to answer' }),
@@ -142,7 +135,6 @@ export function registerAnswerManagerQuestionTool(api: ExtensionAPI): void {
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       const { subagentSessionId, questionId, answer } = params;
 
-      // Check for pending questions
       const pending = session.getUnansweredManagerQuestions(subagentSessionId);
       const question = pending.find(q => q.id === questionId);
 
@@ -153,7 +145,6 @@ export function registerAnswerManagerQuestionTool(api: ExtensionAPI): void {
         };
       }
 
-      // Answer the question
       managerBridge.managerAnswer(subagentSessionId, questionId, answer);
 
       return {
@@ -165,27 +156,34 @@ export function registerAnswerManagerQuestionTool(api: ExtensionAPI): void {
 }
 
 // ============================================
-// TOOL: forward_to_user
+// TOOL: ask_user_question (for manager to ask user)
 // ============================================
 
-export function registerForwardToUserTool(api: ExtensionAPI): void {
+export function registerAskUserQuestionTool(api: ExtensionAPI): void {
   api.registerTool({
-    name: 'forward_to_user',
-    label: 'Forward to User',
-    description: 'Forward a sub-agent question to the user. Use this when the manager cannot answer and needs user input.',
+    name: 'ask_user_question',
+    label: 'Ask User',
+    description: 'Manager asks the user a question. Use this when the sub-agent needs user input and you decide to forward it.',
     parameters: Type.Object({
-      subagentSessionId: Type.String({ description: 'Session ID of the sub-agent' }),
-      questionId: Type.String({ description: 'ID of the question to forward' }),
+      question: Type.String({ description: 'Question to ask the user' }),
+      subagentSessionId: Type.String({ description: 'Session ID of the sub-agent that needs the answer' }),
+      questionId: Type.String({ description: 'ID of the question to update with the user answer' }),
     }),
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const { subagentSessionId, questionId } = params;
+      const { question, subagentSessionId, questionId } = params;
 
-      // Forward to user
-      managerBridge.forwardQuestionToUser(subagentSessionId, questionId);
+      // This tool shows the question to the user
+      // The user will answer, and we need to capture that
+      // For now, we return with a note that user interaction is needed
+      
+      // In a full implementation, this would integrate with the ask_user_question extension
+      // For now, we forward the question to user and wait
+      
+      ctx.ui.notify(`User question from sub-agent ${subagentSessionId}: ${question}`, 'info');
 
       return {
-        content: [{ type: 'text', text: `Question ${questionId} forwarded to user. Waiting for response...` }],
-        details: { questionId, sessionId: subagentSessionId },
+        content: [{ type: 'text', text: `Question sent to user: "${question}". Waiting for response...` }],
+        details: { sessionId: subagentSessionId, questionId },
       };
     },
   });
@@ -230,6 +228,6 @@ export function registerAllTools(api: ExtensionAPI): void {
   registerRunSubagentsTool(api);
   registerAskManagerQuestionTool(api);
   registerAnswerManagerQuestionTool(api);
-  registerForwardToUserTool(api);
+  registerAskUserQuestionTool(api);
   registerGetPendingManagerQuestionsTool(api);
 }

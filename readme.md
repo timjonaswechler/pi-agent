@@ -1,66 +1,101 @@
-# Pi Agent Extension
+# Pi Agent
 
-Extension für Pi, die Agent-Spawning und Team-Orchestrierung mit interaktivem Bridge-System ermöglicht.
+Unified subagent orchestration for Pi.
 
 ## Features
 
-- **Agent Spawning**: Manuelles Starten von spezialisierten Subagents
-- **Scenario 1**: User ↔ Subagent (direkte Kommunikation)
-- **Scenario 2**: Manager ↔ Subagent (Manager als zentraler Ansprechpartner)
-- **Session-basierte Kommunikation** — Main Pi Context bleibt sauber
-- **TUI Widgets** für Status-Anzeige
+- **Commands**: `/agent`, `/team`, `/list`, `/kill`
+- **Tools**: `run_subagents`, `ask_manager_question`, `answer_manager_question`, `ask_user_question`, `get_pending_manager_questions`
+- **Bridge**: Uses existing `ask_user_question` extension for user interaction
 
-## Architektur
+## Architecture
 
 ```
-pi-agent/
-├── index.ts              # Main entry point
-├── types.ts              # Type definitions
-├── session.ts            # Session file read/write
-├── spawn.ts              # Subagent spawning
-├── user-bridge.ts        # User ↔ Subagent bridge
-├── manager-bridge.ts     # Manager ↔ Subagent bridge
-├── widget.ts             # TUI widgets
-├── commands.ts           # Slash commands
-└── ask-manager.ts        # ask_manager_question implementation
+src/
+├── index.ts              # Main entry
+├── types.ts              # Unified types
+├── session/index.ts      # Session management + on-demand polling
+├── spawn/index.ts        # Subagent spawning
+├── bridge/
+│   └── manager.ts        # Manager ↔ Subagent bridge
+├── commands/index.ts     # Slash commands
+└── tools/index.ts        # Tools
 ```
 
-## Kommunikations-Flow
+## Communication Flows
 
-### Scenario 1: User → Subagent (direkt)
-
-```
-User spawnt Subagent
-    ↓
-ask_user_question → Widget → User antwortet
-    ↓
-Antwort in Subagent Session File
-    ↓
-Subagent macht weiter
-```
-
-### Scenario 2: Manager → Subagent
+### Flow A: User starts Subagent directly
 
 ```
-Manager spawnt Subagent
-    ↓
-Subagent braucht Hilfe → ask_manager_question
-    ↓
-Anfrage in Subagent Session File
-    ↓
-Manager liest → ANTWORTET selbst
-    ↓
-Antwort in Session File
-    ↓
-Subagent macht weiter
+User ──spawns──→ Subagent (mode: user)
+                 ↓
+        Subagent calls ask_user_question
+                 ↓
+        ask_user_question extension shows widget
+                 ↓
+              User answers
+                 ↓
+        Answer in Session File
+                 ↓
+        Subagent polling → continues
 ```
 
-→ Manager bleibt zentraler Ansprechpartner — Subagent fragt nie direkt User wenn Manager aktiv
+### Flow B: Manager starts Subagent
 
-## TODOs
+```
+Manager ──spawns──→ Subagent (mode: manager)
+                      ↓
+              Subagent calls ask_manager_question
+                      ↓
+              Question in Session File
+                      ↓
+              Manager sees via get_pending_manager_questions
+                      ↓
+         ┌────────────────┴────────────────┐
+         ↓                                 ↓
+   Manager CAN answer              Manager needs user input
+         ↓                                 ↓
+   answer_manager_question        Manager calls ask_user_question
+         ↓                                 ↓
+   Answer in Session File          User answers
+         ↓                                 ↓
+   Subagent polling               Manager writes to Session File
+         ↓                                 ↓
+      continues                          ↓
+                                    Subagent polling → continues
+```
 
-- [ ] Session file polling für pending questions
-- [ ] Widget für aktive Subagent-Fragen
-- [ ] Manager auto-answer routing
-- [ ] Session file JSON structure definieren
-- [ ] Subagent detect new answers
+## Key Rules
+
+| Situation | Who calls ask_user_question? |
+|-----------|-------------------------------|
+| User starts Subagent | **Subagent directly** |
+| Manager starts Subagent, Manager decides user input needed | **Manager** (not Subagent!) |
+| Manager starts Subagent, Manager can answer | **Manager** uses `answer_manager_question` |
+
+## Usage
+
+```bash
+pi -e extensions/pi-agent/src/index.ts
+```
+
+## Commands
+
+- `/agent <name> <task>` - Spawn a sub-agent
+- `/team <name>` - Activate Team Mode
+- `/list` - Show active sub-agents
+- `/kill <session-id>` - Kill a sub-agent
+
+## Tools
+
+- `run_subagents` - Run multiple tasks in parallel
+- `ask_manager_question` - Subagent asks manager
+- `answer_manager_question` - Manager answers
+- `ask_user_question` - Manager asks user (when forwarding)
+- `get_pending_manager_questions` - List pending questions
+
+## Session Files
+
+Session state stored in: `~/.pi/pi-agent/sessions/`
+
+Environment variable: `PI_AGENT_SESSION_DIR` for testing

@@ -4,19 +4,28 @@ describe('Manager Bridge Integration', () => {
   describe('Question Flow', () => {
     it('documents the two manager actions', () => {
       // answer_manager_question → direct answer to subagent
-      // forward_to_user → route to user widget
-      const actions = ['answer_manager_question', 'forward_to_user'];
+      // ask_user_question → route to user (manager asks user)
+      const actions = ['answer_manager_question', 'ask_user_question'];
       expect(actions).toHaveLength(2);
     });
   });
 
   describe('Bridge Architecture', () => {
-    it('has user and manager bridge components', async () => {
-      const user = await import('../src/bridge/user');
+    it('has manager bridge component', async () => {
       const manager = await import('../src/bridge/manager');
       
-      expect(typeof user.handleUserQuestion).toBe('function');
       expect(typeof manager.managerAnswer).toBe('function');
+      expect(typeof manager.setManagerMode).toBe('function');
+    });
+
+    it('has tools for all operations', async () => {
+      const tools = await import('../src/tools');
+      
+      expect(typeof tools.registerAllTools).toBe('function');
+      expect(typeof tools.registerRunSubagentsTool).toBe('function');
+      expect(typeof tools.registerAskManagerQuestionTool).toBe('function');
+      expect(typeof tools.registerAnswerManagerQuestionTool).toBe('function');
+      expect(typeof tools.registerAskUserQuestionTool).toBe('function');
     });
   });
 });
@@ -34,9 +43,23 @@ describe('Tools', () => {
       'run_subagents',
       'ask_manager_question',
       'answer_manager_question',
-      'forward_to_user',
+      'ask_user_question',
       'get_pending_manager_questions',
     ];
     expect(tools).toHaveLength(5);
+  });
+});
+
+describe('Communication Flows', () => {
+  it('documents Flow A: User starts Subagent', () => {
+    // User spawns → Subagent calls ask_user_question → User answers → continues
+    const steps = ['spawn', 'ask_user_question', 'answer', 'continue'];
+    expect(steps).toHaveLength(4);
+  });
+
+  it('documents Flow B: Manager starts Subagent', () => {
+    // Manager spawns → Subagent asks manager → Manager decides
+    const decisions = ['answer_manager_question', 'ask_user_question'];
+    expect(decisions).toHaveLength(2);
   });
 });

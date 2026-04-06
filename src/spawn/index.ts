@@ -5,9 +5,14 @@
 import { spawn as childSpawn } from 'child_process';
 import { existsSync, readFileSync, statSync, writeFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import * as session from '../session/index.ts';
 import type { SessionState } from '../types.ts';
+
+// ESM: get extension root directory
+const __filename = fileURLToPath(import.meta.url);
+const extRoot = dirname(dirname(dirname(__filename)));  // src/spawn/index.ts → src/ → extension root
 
 // ============================================
 // AGENT FILE LOADING
@@ -18,14 +23,33 @@ export function findAgentFile(agentName: string, cwd: string): string | null {
   const parts = agentName.split('/');
   const home = process.env.HOME || '';
 
-  const searchPaths = [
-    // Local project agents
+  // Get leaders folder paths (same level as teams.yaml)
+  const teamsLeadersPaths = [
+    join(extRoot, 'teams', 'leaders'),
+    join(home, '.pi', 'teams', 'leaders'),
+  ];
+
+  const searchPaths: string[] = [];
+
+  // Add leaders folder paths
+  for (const leadersDir of teamsLeadersPaths) {
+    // Check for {leadersDir}/{agentName}.md
+    searchPaths.push(join(leadersDir, `${agentName}.md`));
+    // Check nested like {leadersDir}/subagent/{name}.md
+    searchPaths.push(join(leadersDir, ...parts.slice(0, -1), `${parts[parts.length - 1]}.md`));
+  }
+
+  // Local project agents
+  searchPaths.push(
     join(cwd, '.pi', 'agents', ...parts.map(p => `${p}.md`)),
     join(cwd, '.pi', 'agents', ...parts.map(p => `${p}`)),
-    // Global agents
+  );
+  
+  // Global agents
+  searchPaths.push(
     join(home, '.pi', 'agents', ...parts.map(p => `${p}.md`)),
     join(home, '.pi', 'agents', ...parts.map(p => `${p}`)),
-  ];
+  );
 
   for (const path of searchPaths) {
     if (existsSync(path)) {

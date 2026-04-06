@@ -11,9 +11,9 @@ import * as session from '../session/index.ts';
 import * as spawn from '../spawn/index.ts';
 import * as managerBridge from '../bridge/manager.ts';
 
-// ESM: get __dirname equivalent and extension root
+// ESM: get extension root directory
 const __filename = fileURLToPath(import.meta.url);
-const extRoot = dirname(dirname(__filename));  // Go up from src/commands to extension root
+const extRoot = dirname(dirname(dirname(__filename)));  // src/commands/index.ts → src/ → extension root
 
 // ============================================
 // TEAM CONFIG LOADING

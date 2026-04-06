@@ -1,17 +1,15 @@
-# Pi-Agent Built-in Teams
-# This file provides default teams.
-# Override in ~/.pi/teams/teams.yaml (global) or {project}/.pi/teams/teams.yaml (local)
+// Pi-Agent Built-in Teams
+// These teams use agents from ~/.pi/agents/
 
 Default-Team:
   manager: team-leader
   members:
-    - researcher
-    - git-expert
+    - subagent/code-reviewer
+    - team-reviewer
 
 Coding-Team:
-  manager: coding-manager
+  manager: team-leader
   members:
-    - researcher
-    - git-expert
-    - tester
-    - reviewer
+    - subagent/test-automator
+    - subagent/git-commit
+    - team-reviewer

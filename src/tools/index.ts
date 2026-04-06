@@ -4,9 +4,9 @@
 
 import type ExtensionAPI from '@mariozechner/pi-coding-agent';
 import { Type } from '@sinclair/typebox';
-import * as session from '../session';
-import * as spawn from '../spawn';
-import * as managerBridge from '../bridge/manager';
+import * as session from '../session/index.ts';
+import * as spawn from '../spawn/index.ts';
+import * as managerBridge from '../bridge/manager.ts';
 
 // ============================================
 // TOOL: run_subagents

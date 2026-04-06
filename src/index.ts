@@ -13,15 +13,16 @@
 import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
 import { Type } from '@sinclair/typebox';
 
-// Modules
-import * as session from './session';
-import * as commands from './commands';
-import * as tools from './tools';
-import * as managerBridge from './bridge/manager';
-import * as spawn from './spawn';
+import * as spawn from './spawn/index.ts';
+import { Text } from '@mariozechner/pi-tui';
+import { Type } from '@sinclair/typebox';
+import * as session from './session/index.ts';
+import * as commands from './commands/index.ts';
+import * as tools from './tools/index.ts';
+import * as managerBridge from './bridge/manager.ts';
 
 // Types
-export * from './types';
+export * from './types.ts';
 
 // ============================================
 // EVENT HANDLING

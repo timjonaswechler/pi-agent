@@ -2,8 +2,8 @@
 // MANAGER ↔ SUBAGENT BRIDGE
 // ============================================
 
-import * as session from '../session';
-import type { PendingQuestion, BridgeEvent } from '../types';
+import * as session from '../session/index.ts';
+import type { PendingQuestion, BridgeEvent } from '../types.ts';
 
 // Track sessions in manager mode
 const managerModeSessions = new Set<string>();

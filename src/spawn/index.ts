@@ -6,8 +6,8 @@ import { spawn as childSpawn } from 'child_process';
 import { existsSync, readFileSync, statSync, writeFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import * as session from '../session';
-import type { SessionState } from '../types';
+import * as session from '../session/index.ts';
+import type { SessionState } from '../types.ts';
 
 // ============================================
 // AGENT FILE LOADING

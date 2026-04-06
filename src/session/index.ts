@@ -4,7 +4,7 @@
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import type { SessionState, PendingQuestion, SessionStatus } from '../types';
+import type { SessionState, PendingQuestion, SessionStatus } from '../types.ts';
 
 // Configurable session directory
 const SESSION_DIR = process.env.PI_AGENT_SESSION_DIR || 

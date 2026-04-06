@@ -61,20 +61,36 @@ export function loadTeamsYaml(cwd: string): TeamsYaml | null {
 function parseTeamsYaml(yamlContent: string): TeamsYaml {
   const teams: TeamsYaml = {};
   let currentTeam: string | null = null;
+  let currentIndent = 0;
 
   for (const line of yamlContent.split('\n')) {
-    if (!line.trim() || line.trim().startsWith('#')) continue;
-    
+    const originalLine = line;
     const trimmed = line.trim();
     
-    if (trimmed.endsWith(':')) {
+    // Skip empty lines and comments
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    
+    // Calculate indent level (number of leading spaces)
+    const indent = line.search(/\S/);
+    if (indent === -1) continue;
+    
+    // Team name line: no indent at top level, ends with colon, and is NOT 'manager:' or 'members:'
+    if (indent === 0 && trimmed.endsWith(':') && !['manager:', 'members:'].includes(trimmed)) {
       currentTeam = trimmed.slice(0, -1).trim();
       teams[currentTeam] = { manager: '', members: [] };
-    } else if (currentTeam && trimmed.startsWith('manager:')) {
-      teams[currentTeam].manager = trimmed.replace('manager:', '').trim();
-    } else if (currentTeam && trimmed.startsWith('-')) {
-      const member = trimmed.substring(1).trim();
-      if (member) teams[currentTeam].members.push(member);
+      currentIndent = 0;
+    }
+    // Inside a team
+    else if (currentTeam) {
+      // manager: line
+      if (trimmed.startsWith('manager:')) {
+        teams[currentTeam].manager = trimmed.replace('manager:', '').trim();
+      }
+      // member list item (starts with dash)
+      else if (trimmed.startsWith('-')) {
+        const member = trimmed.substring(1).trim();
+        if (member) teams[currentTeam].members.push(member);
+      }
     }
   }
 

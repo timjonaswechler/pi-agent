@@ -1,11 +1,12 @@
-// Pi-Agent Built-in Teams
-// These teams use agents from ~/.pi/agents/
+# Pi-Agent Built-in Teams
+# These teams use agents from ~/.pi/agents/
 
 Default-Team:
   manager: team-leader
   members:
     - subagent/code-reviewer
     - team-reviewer
+    - peter
 
 Coding-Team:
   manager: team-leader

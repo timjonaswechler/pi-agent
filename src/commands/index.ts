@@ -11,9 +11,9 @@ import * as session from '../session/index.ts';
 import * as spawn from '../spawn/index.ts';
 import * as managerBridge from '../bridge/manager.ts';
 
-// ESM: get __dirname equivalent
+// ESM: get __dirname equivalent and extension root
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const extRoot = dirname(dirname(__filename));  // Go up from src/commands to extension root
 
 // ============================================
 // TEAM CONFIG LOADING
@@ -31,7 +31,7 @@ export function loadTeamsYaml(cwd: string): TeamsYaml | null {
   // Search paths (lowest to highest priority)
   const home = process.env.HOME || '';
   const searchPaths: Array<{ path: string; priority: number }> = [
-    { path: join(__dirname, 'teams', 'teams.yaml'), priority: 1 },  // Built-in (lowest)
+    { path: join(extRoot, 'teams', 'teams.yaml'), priority: 1 },  // Built-in (lowest)
     { path: join(home, '.pi', 'teams', 'teams.yaml'), priority: 2 },  // Global
     { path: join(cwd, '.pi', 'teams', 'teams.yaml'), priority: 3 },   // Local (highest)
   ];

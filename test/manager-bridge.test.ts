@@ -25,7 +25,7 @@ describe('Manager Bridge Integration', () => {
       expect(typeof tools.registerRunSubagentsTool).toBe('function');
       expect(typeof tools.registerAskManagerQuestionTool).toBe('function');
       expect(typeof tools.registerAnswerManagerQuestionTool).toBe('function');
-      expect(typeof tools.registerAskUserQuestionTool).toBe('function');
+      // ask_user_question is provided by pi-askuserquestion extension
     });
   });
 });

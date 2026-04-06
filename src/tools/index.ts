@@ -156,40 +156,6 @@ export function registerAnswerManagerQuestionTool(api: ExtensionAPI): void {
 }
 
 // ============================================
-// TOOL: ask_user_question (for manager to ask user)
-// ============================================
-
-export function registerAskUserQuestionTool(api: ExtensionAPI): void {
-  api.registerTool({
-    name: 'ask_user_question',
-    label: 'Ask User',
-    description: 'Manager asks the user a question. Use this when the sub-agent needs user input and you decide to forward it.',
-    parameters: Type.Object({
-      question: Type.String({ description: 'Question to ask the user' }),
-      subagentSessionId: Type.String({ description: 'Session ID of the sub-agent that needs the answer' }),
-      questionId: Type.String({ description: 'ID of the question to update with the user answer' }),
-    }),
-    async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const { question, subagentSessionId, questionId } = params;
-
-      // This tool shows the question to the user
-      // The user will answer, and we need to capture that
-      // For now, we return with a note that user interaction is needed
-      
-      // In a full implementation, this would integrate with the ask_user_question extension
-      // For now, we forward the question to user and wait
-      
-      ctx.ui.notify(`User question from sub-agent ${subagentSessionId}: ${question}`, 'info');
-
-      return {
-        content: [{ type: 'text', text: `Question sent to user: "${question}". Waiting for response...` }],
-        details: { sessionId: subagentSessionId, questionId },
-      };
-    },
-  });
-}
-
-// ============================================
 // TOOL: get_pending_manager_questions
 // ============================================
 
@@ -228,6 +194,5 @@ export function registerAllTools(api: ExtensionAPI): void {
   registerRunSubagentsTool(api);
   registerAskManagerQuestionTool(api);
   registerAnswerManagerQuestionTool(api);
-  registerAskUserQuestionTool(api);
   registerGetPendingManagerQuestionsTool(api);
 }

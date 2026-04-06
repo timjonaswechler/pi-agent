@@ -23,20 +23,33 @@ interface TeamConfig {
 type TeamsYaml = Record<string, TeamConfig>;
 
 export function loadTeamsYaml(cwd: string): TeamsYaml | null {
-  const globalPath = join(process.env.HOME || '', '.pi', 'agent-team', 'teams.yaml');
-  const localPath = join(cwd, '.pi', 'agent-team', 'teams.yaml');
+  const searchPaths = [
+    join(cwd, '.pi', 'agents', 'teams.yaml'),
+    join(process.env.HOME || '', '.pi', 'agents', 'teams.yaml'),
+    join(cwd, '.pi', 'agent-team', 'teams.yaml'),
+    join(process.env.HOME || '', '.pi', 'agent-team', 'teams.yaml'),
+  ];
 
   let yamlContent: string | null = null;
 
-  if (existsSync(localPath)) {
-    yamlContent = readFileSync(localPath, 'utf-8');
-  } else if (existsSync(globalPath)) {
-    yamlContent = readFileSync(globalPath, 'utf-8');
+  for (const path of searchPaths) {
+    if (existsSync(path)) {
+      yamlContent = readFileSync(path, 'utf-8');
+      break;
+    }
   }
 
   if (!yamlContent) return null;
 
-  // Simple YAML parser
+  // Try to detect format and parse accordingly
+  if (yamlContent.includes('teams:')) {
+    return parseFlatTeamsYaml(yamlContent);
+  } else {
+    return parseHierarchicalTeamsYaml(yamlContent);
+  }
+}
+
+function parseHierarchicalTeamsYaml(yamlContent: string): TeamsYaml {
   const teams: TeamsYaml = {};
   let currentTeam: string | null = null;
 
@@ -45,7 +58,6 @@ export function loadTeamsYaml(cwd: string): TeamsYaml | null {
     
     const trimmed = line.trim();
     
-    // Team name line
     if (trimmed.endsWith(':')) {
       currentTeam = trimmed.slice(0, -1).trim();
       teams[currentTeam] = { manager: '', members: [] };
@@ -62,7 +74,33 @@ export function loadTeamsYaml(cwd: string): TeamsYaml | null {
     }
   }
 
-  return Object.keys(teams).length > 0 ? teams : null;
+  return teams;
+}
+
+function parseFlatTeamsYaml(yamlContent: string): TeamsYaml {
+  const teams: TeamsYaml = {};
+  let currentTeam: string | null = null;
+
+  for (const line of yamlContent.split('\n')) {
+    if (!line.trim() || line.trim().startsWith('#')) continue;
+    
+    const trimmed = line.trim();
+    
+    // Skip the 'teams:' root key
+    if (trimmed === 'teams:') continue;
+    
+    // Team name (indented, no colon, not starting with dash)
+    if (!trimmed.startsWith('-') && !trimmed.includes(':')) {
+      currentTeam = trimmed;
+      teams[currentTeam] = { manager: '', members: [] };
+    } else if (trimmed.startsWith('-') && currentTeam) {
+      // Member line
+      const member = trimmed.substring(1).trim();
+      if (member) teams[currentTeam].members.push(member);
+    }
+  }
+
+  return teams;
 }
 
 // ============================================

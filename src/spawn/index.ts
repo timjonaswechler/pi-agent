@@ -14,11 +14,17 @@ import type { SessionState } from '../types.ts';
 // ============================================
 
 export function findAgentFile(agentName: string, cwd: string): string | null {
+  // Support nested paths like "subagent/code-reviewer"
+  const parts = agentName.split('/');
+  const home = process.env.HOME || '';
+
   const searchPaths = [
-    join(process.env.HOME || '', '.pi', 'agents', `${agentName}.md`),
-    join(process.env.HOME || '', '.pi', 'agent-team', 'agents', `${agentName}.md`),
-    join(cwd, '.pi', 'agents', `${agentName}.md`),
-    join(cwd, '.pi', 'agent-team', 'agents', `${agentName}.md`),
+    // Local project agents
+    join(cwd, '.pi', 'agents', ...parts.map(p => `${p}.md`)),
+    join(cwd, '.pi', 'agents', ...parts.map(p => `${p}`)),
+    // Global agents
+    join(home, '.pi', 'agents', ...parts.map(p => `${p}.md`)),
+    join(home, '.pi', 'agents', ...parts.map(p => `${p}`)),
   ];
 
   for (const path of searchPaths) {

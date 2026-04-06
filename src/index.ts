@@ -39,10 +39,31 @@ function emitBridgeEvent(event: import('./types').BridgeEvent): void {
 }
 
 // ============================================
+// CONTEXT FILTERING
+// ============================================
+//
+// Filter subagent results from context to keep it clean.
+// Full results are stored in session files for access if needed.
+// ============================================
+
+function registerContextFiltering(api: ExtensionAPI): void {
+  api.on('context', async (event) => {
+    // Filter out agent-result messages to keep context clean
+    const filteredMessages = event.messages.filter(
+      (m) => m.customType !== 'agent-result'
+    );
+    return { messages: filteredMessages };
+  });
+}
+
+// ============================================
 // MAIN EXTENSION
 // ============================================
 
 export function registerExtension(api: ExtensionAPI): void {
+  // Register context filtering first
+  registerContextFiltering(api);
+
   // Set up global poll callbacks
   session.setGlobalPollCallbacks(
     // onChange - could update UI here

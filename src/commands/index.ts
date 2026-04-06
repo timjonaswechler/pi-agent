@@ -9,6 +9,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import * as session from '../session/index.ts';
 import * as spawn from '../spawn/index.ts';
+import { getAgentInfo } from '../spawn/index.ts';
 import * as managerBridge from '../bridge/manager.ts';
 
 // ESM: get extension root directory
@@ -204,11 +205,36 @@ export function registerCommands(api: ExtensionAPI): void {
 
       // Inject team context as system message
       const team = teams[selected];
-      const memberList = team.members.join(', ');
+      
+      // Build rich member list with descriptions
+      const memberDetails = team.members
+        .map(member => {
+          const info = getAgentInfo(member, ctx.cwd);
+          if (info?.description) {
+            return `- ${member}: ${info.description}`;
+          }
+          return `- ${member}`;
+        })
+        .join('\n');
+      
+      // Get team leader's system prompt
+      let leaderPrompt = '';
+      if (team.manager) {
+        const leaderInfo = getAgentInfo(team.manager, ctx.cwd);
+        if (leaderInfo?.systemPrompt) {
+          leaderPrompt = `\n\nYour role as Team Manager:\n${leaderInfo.systemPrompt}`;
+        }
+      }
+      
+      const systemMessage = `[TEAM MODE] You are now the Team Manager for "${selected}".${leaderPrompt}
+
+Available team members:\n${memberDetails}
+
+Use the run_subagents tool to delegate tasks to team members.`;
       
       api.sendMessage({
         role: 'system',
-        content: `[TEAM MODE] You are now the Team Manager for "${selected}".\n\nAvailable team members: ${memberList}\n\nUse run_subagents to delegate tasks.`,
+        content: systemMessage,
       }, { deliverAs: 'context' });
     },
   });

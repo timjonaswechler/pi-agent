@@ -46,18 +46,43 @@ export function extractSystemPrompt(filePath: string): string {
   return match ? match[1].trim() : content;
 }
 
-export function getAgentDescription(agentName: string, cwd: string): string | null {
+export interface AgentInfo {
+  name: string;
+  filePath: string;
+  description: string | null;
+  systemPrompt: string;
+}
+
+export function getAgentInfo(agentName: string, cwd: string): AgentInfo | null {
   const filePath = findAgentFile(agentName, cwd);
   if (!filePath) return null;
 
   try {
     const content = readFileSync(filePath, 'utf-8');
-    // Try to extract description from frontmatter
-    const match = content.match(/description:\s*(.+)/i);
-    return match ? match[1].trim() : null;
+    
+    // Extract description from frontmatter
+    let description: string | null = null;
+    const descMatch = content.match(/description:\s*(.+)/i);
+    if (descMatch) description = descMatch[1].trim();
+    
+    // Extract system prompt (markdown body after frontmatter)
+    const bodyMatch = content.match(/^---\n[\s\S]*?---\n([\s\S]*)$/);
+    const systemPrompt = bodyMatch ? bodyMatch[1].trim() : content;
+    
+    return {
+      name: agentName,
+      filePath,
+      description,
+      systemPrompt,
+    };
   } catch {
     return null;
   }
+}
+
+export function getAgentDescription(agentName: string, cwd: string): string | null {
+  const info = getAgentInfo(agentName, cwd);
+  return info?.description ?? null;
 }
 
 // ============================================

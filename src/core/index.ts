@@ -16,7 +16,7 @@ import { Type } from '@sinclair/typebox';
 import * as spawn from './spawn/index.ts';
 import { Text } from '@mariozechner/pi-tui';
 import * as session from './session/index.ts';
-import * as commands from './commands/index.ts';
+import * as commands from './teams/index.ts';
 import * as tools from './tools/index.ts';
 import * as managerBridge from './bridge/manager.ts';
 

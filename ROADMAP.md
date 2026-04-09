@@ -25,31 +25,35 @@ Goal: make the project documentation and planning structure clear before impleme
 
 ## Milestone 1 — Stabilize the Core
 
+_Status: mostly complete based on current implementation and manual testing. Remaining gaps are minor verification/polish, while the major unanswered work has moved into Milestone 2._
+
 Goal: make the current extension coherent and shippable in its basic form.
 
 ### Bugs / correctness
-- [ ] Fix `/team` message injection shape
-- [ ] Fix `@file` system prompt loading
-- [ ] Verify leader prompt content is actually injected
-- [ ] Verify named agent profile prompt content is actually injected
+- [x] Fix `/team` message injection shape
+- [x] Fix `@file` system prompt loading
+- [x] Verify leader prompt content is actually injected in the current session model
+- [x] Verify named agent profile prompt content is actually injected for spawned subagents
 
 ### Config / parsing
-- [ ] Add `js-yaml`
-- [ ] Replace hand-rolled YAML parsing
-- [ ] Validate malformed YAML with actionable errors
-- [ ] Document the supported `teams.yaml` shape
+- [x] Add `js-yaml`
+- [x] Replace hand-rolled YAML parsing
+- [x] Validate malformed YAML with actionable errors
+- [ ] Document the supported `teams.yaml` shape more explicitly
 
 ### Cleanup
-- [ ] Remove dead code modules
-- [ ] Remove obsolete tests
-- [ ] Consolidate module layout around the current architecture
+- [x] Remove dead code modules
+- [x] Remove obsolete tests
+- [x] Consolidate module layout around the current architecture
 - [ ] Align command/tool naming where inconsistent
 
 ### Manual validation
-- [ ] `/team` works in a real session
-- [ ] `/agent` works in a real session
-- [ ] `/list` shows active sessions correctly
-- [ ] `/kill` terminates a running session correctly
+- [x] `/team` works in a real session
+- [x] `/agent` works in a real session
+- [x] `/list` shows active sessions correctly
+- [ ] `/kill` terminates a running session correctly under a slower/controlled test
+- [x] `/agent` supports pending next-message delegation
+- [x] `/agent cancel` cancels pending delegation
 
 ### Done when
 - commands work reliably
@@ -63,12 +67,21 @@ Goal: make the current extension coherent and shippable in its basic form.
 
 Goal: validate the actual manager/subagent workflow end to end.
 
+This is now the main focus. The critical question is no longer command wiring, but whether the full question/answer loop behaves correctly across spawned processes.
+
 ### Happy path
 - [ ] Manager spawns a subagent
 - [ ] Subagent completes without questions
 - [ ] Final result is returned cleanly
 
+### Clarification model
+- [ ] Decide the intended behavior for `/agent`-spawned subagents: ask user directly vs ask manager first
+- [ ] Verify which tool path is actually available in a spawned json subagent process
+- [ ] Confirm whether direct `ask_user_question` is supported for user-started subagents in practice or should be treated as unsupported in json subprocess mode
+- [ ] Document the supported clarification behavior clearly
+
 ### Question/answer path
+- [ ] Create a reproducible test prompt that forces a subagent to ask a clarification question
 - [ ] Subagent asks manager a question
 - [ ] Manager sees pending questions
 - [ ] Manager answers directly
@@ -89,6 +102,7 @@ Goal: validate the actual manager/subagent workflow end to end.
 - [ ] Timeout behavior is defined and tested
 - [ ] Kill behavior is defined and tested
 - [ ] Crash behavior is defined and tested
+- [ ] Add a slower/debug subagent scenario to make `/kill` easy to verify manually
 
 ### Done when
 - one happy path works reliably
@@ -117,6 +131,10 @@ Goal: remove ambiguity around configuration and search paths.
 ---
 
 ## Milestone 4 — Visibility and Task Dashboard
+
+Notes captured from manual testing:
+- `kill` is hard to use ergonomically because fast agents often finish before the user can copy/type a session id
+- long term, `/list` and `/kill` should likely become a combined interactive agent-management UI with selection-based actions such as inspect vs kill
 
 Goal: make delegated work visible while it is running.
 
@@ -183,6 +201,10 @@ Goal: make orchestration primitives reusable by other Pi extensions.
 ---
 
 ## Open Decisions
+
+Additional notes captured from current testing:
+- [ ] Should `/list` and `/kill` eventually be replaced by a single interactive agent-management command?
+- [ ] Should a spawned subagent in json/background mode ever ask the user directly, or should all clarification go through a manager path?
 
 These should be revisited as milestone work advances.
 

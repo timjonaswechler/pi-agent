@@ -146,7 +146,10 @@ export function registerCommands(api: ExtensionAPI): void {
           pendingDelegationAgent = null;
           ctx.ui.notify(`Cancelled pending delegation for ${cancelledAgent}`, "info");
         } else {
-          ctx.ui.notify("No pending agent delegation to cancel", "info");
+          ctx.ui.notify(
+            "No pending delegation to cancel. To stop a running subagent, use /list and then /kill <session-id>.",
+            "info",
+          );
         }
         return;
       }

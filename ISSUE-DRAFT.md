@@ -175,6 +175,7 @@ Subagent
 - pending question lookup exists
 - manager answer flow exists
 - `/agent`, `/team`, `/list`, `/kill` exist
+- `/agent` supports pending next-message delegation and `/agent cancel`
 - placeholder substitution for leader prompts exists
 - context filtering exists in some form
 - ask-user-question integration exists for human escalation
@@ -188,6 +189,7 @@ Subagent
 - question polling/unblocking behavior
 - placeholder substitution in leader prompts
 - multi-subagent aggregation behavior
+- clarification behavior for `/agent`-spawned subagents in json/background mode
 
 ### Not started or still unclear
 - robust YAML parsing with `js-yaml`
@@ -213,10 +215,17 @@ Spawn a single subagent directly from the current session.
 
 **Syntax**
 ```text
+/agent
+/agent <agent-name>
 /agent <agent-name> <task...>
+/agent cancel
 ```
 
 **Behavior**
+- `/agent` opens agent selection and arms the next user message as the task
+- `/agent <agent-name>` arms that agent for the next user message
+- `/agent <agent-name> <task...>` spawns immediately
+- `/agent cancel` cancels a pending next-message delegation, not an already running subagent
 - resolve agent profile
 - load prompt/persona
 - spawn subagent subprocess
@@ -271,6 +280,8 @@ List active spawned sessions.
 
 ### `/kill`
 Kill a running subagent session.
+
+_Note: current behavior is functional but ergonomically weak for very fast agents. A later interactive management UI should likely combine list + inspect + kill in one flow._
 
 **Syntax**
 ```text
@@ -398,6 +409,7 @@ This issue is the umbrella. The execution checklist should live in `ROADMAP.md`.
 
 ### Phase 2 — Verify the orchestration loop
 - manager spawns subagent
+- define and verify the clarification model for `/agent`-spawned subagents
 - subagent asks manager question
 - manager answers or escalates
 - subagent resumes
@@ -435,6 +447,8 @@ These still need explicit decisions:
 5. Should `pi-tasks` be a direct dependency, optional integration, or only inspiration?
 6. What should happen to active agents across `/reload`?
 7. Should `run_subagents` eventually support incremental progress updates?
+8. Should `/agent`-spawned subagents ask the user directly, or should clarification always go through a manager-style bridge?
+9. Should `/list` and `/kill` eventually become one interactive management flow?
 
 ---
 

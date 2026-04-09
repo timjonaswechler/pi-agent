@@ -2,9 +2,10 @@
 // SESSION MANAGEMENT WITH ON-DEMAND POLLING
 // ============================================
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync, unlinkSync } from 'fs';
 import { join } from 'path';
-import type { SessionState, PendingQuestion, SessionStatus } from '../types.ts';
+import type { SessionState, PendingQuestion, SessionStatus } from '../../core/types.ts';
+export type { SessionState, PendingQuestion, SessionStatus };
 
 // Configurable session directory
 const SESSION_DIR = process.env.PI_AGENT_SESSION_DIR || 
@@ -73,7 +74,6 @@ export function deleteSession(sessionId: string): void {
   const filePath = getSessionFilePath(sessionId);
   if (existsSync(filePath)) {
     try {
-      const { unlinkSync } = require('fs');
       unlinkSync(filePath);
     } catch {
       // Ignore errors on delete
@@ -139,7 +139,6 @@ export function getAllPendingManagerQuestions(): Array<{ sessionId: string; suba
   
   // Get all session files
   ensureSessionDir();
-  const { readdirSync } = require('fs');
   
   try {
     const files = readdirSync(SESSION_DIR);
@@ -165,148 +164,75 @@ export function getAllPendingManagerQuestions(): Array<{ sessionId: string; suba
 }
 
 // ============================================
-// POLLING (On-Demand)
+// BLOCKING WAIT FOR ANSWER
+// ============================================
+//
+// Used by ask_manager_question in a subagent process:
+// writes the question to the session file, then polls
+// the file every 500ms until the manager answers.
 // ============================================
 
-export type PollCallback = (state: SessionState) => void;
-export type AnswerCallback = (sessionId: string, questionId: string, answer: string) => void;
+const POLL_INTERVAL_MS = 500;
 
-interface PollerState {
-  intervalId: ReturnType<typeof setInterval>;
-  lastActivity: number;
-  callbacks: {
-    onChange: PollCallback;
-    onAnswer: AnswerCallback;
-  };
-}
-
-const activePollers = new Map<string, PollerState>();
-
-let globalOnChange: PollCallback | null = null;
-let globalOnAnswer: AnswerCallback | null = null;
-
-export function setGlobalPollCallbacks(onChange: PollCallback, onAnswer: AnswerCallback): void {
-  globalOnChange = onChange;
-  globalOnAnswer = onAnswer;
-}
-
-function createPoller(sessionId: string, onChange: PollCallback, onAnswer: AnswerCallback): void {
-  // Stop existing poller
-  stopPolling(sessionId);
-
-  const state = readSession(sessionId);
-  const lastActivity = state?.lastActivity ?? 0;
-
-  const intervalId = setInterval(() => {
-    const currentState = readSession(sessionId);
-    if (!currentState) {
-      stopPolling(sessionId);
+/**
+ * Poll the session file until the given question has been answered,
+ * the signal is aborted, or the timeout is reached.
+ *
+ * Returns the answer string, or null on timeout/abort.
+ */
+export function waitForAnswer(
+  sessionId: string,
+  questionId: string,
+  signal?: AbortSignal,
+  timeoutMs: number = 10 * 60 * 1000, // 10 min default
+): Promise<string | null> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve(null);
       return;
     }
 
-    // Check for new answers
-    if (globalOnAnswer) {
-      for (const q of currentState.pendingQuestions) {
-        if (q.answer && q.answeredAt && q.answeredAt > lastActivity) {
-          globalOnAnswer(sessionId, q.id, q.answer);
-        }
+    const deadline = Date.now() + timeoutMs;
+
+    const intervalId = setInterval(() => {
+      // Abort / timeout check
+      if (signal?.aborted || Date.now() > deadline) {
+        clearInterval(intervalId);
+        resolve(null);
+        return;
       }
-    }
 
-    // Trigger onChange
-    if (globalOnChange) {
-      globalOnChange(currentState);
-    }
+      const state = readSession(sessionId);
+      if (!state) {
+        clearInterval(intervalId);
+        resolve(null);
+        return;
+      }
 
-    // Auto-stop if no pending questions
-    const unanswered = currentState.pendingQuestions.filter(q => !q.answer);
-    if (unanswered.length === 0 && 
-        currentState.status !== 'waiting_manager' && 
-        currentState.status !== 'waiting_user') {
-      stopPolling(sessionId);
-    }
-  }, 500);
+      const question = state.pendingQuestions.find((q) => q.id === questionId);
+      if (question?.answer) {
+        clearInterval(intervalId);
+        resolve(question.answer);
+      }
+    }, POLL_INTERVAL_MS);
 
-  activePollers.set(sessionId, {
-    intervalId,
-    lastActivity,
-    callbacks: { onChange, onAnswer },
+    // Also listen for abort signal
+    signal?.addEventListener('abort', () => {
+      clearInterval(intervalId);
+      resolve(null);
+    }, { once: true });
   });
 }
 
-export function startPolling(sessionId: string): void {
-  if (activePollers.has(sessionId)) return;
+// ============================================
+// LEGACY POLLING STUBS (kept for compat)
+// ============================================
 
-  const state = readSession(sessionId);
-  if (!state) return;
-
-  const unanswered = state.pendingQuestions.filter(q => !q.answer);
-  if (unanswered.length === 0) return;
-
-  createPolling(sessionId, globalOnChange || (() => {}), globalOnAnswer || (() => {}));
-}
-
-function createPolling(sessionId: string, onChange: PollCallback, onAnswer: AnswerCallback): void {
-  // Stop existing poller
-  stopPolling(sessionId);
-
-  const state = readSession(sessionId);
-  const lastActivity = state?.lastActivity ?? 0;
-
-  const intervalId = setInterval(() => {
-    const currentState = readSession(sessionId);
-    if (!currentState) {
-      stopPolling(sessionId);
-      return;
-    }
-
-    // Check for new answers
-    if (globalOnAnswer) {
-      for (const q of currentState.pendingQuestions) {
-        if (q.answer && q.answeredAt && q.answeredAt > lastActivity) {
-          globalOnAnswer(sessionId, q.id, q.answer);
-        }
-      }
-    }
-
-    // Trigger onChange
-    if (globalOnChange) {
-      globalOnChange(currentState);
-    }
-
-    // Auto-stop if no pending questions
-    const unanswered = currentState.pendingQuestions.filter(q => !q.answer);
-    if (unanswered.length === 0 && 
-        currentState.status !== 'waiting_manager' && 
-        currentState.status !== 'waiting_user') {
-      stopPolling(sessionId);
-    }
-  }, 500);
-
-  activePollers.set(sessionId, {
-    intervalId,
-    lastActivity,
-    callbacks: { onChange, onAnswer },
-  });
-}
-
-export function stopPolling(sessionId: string): void {
-  const poller = activePollers.get(sessionId);
-  if (poller) {
-    clearInterval(poller.intervalId);
-    activePollers.delete(sessionId);
-  }
-}
-
-export function stopAllPolling(): void {
-  for (const sessionId of activePollers.keys()) {
-    stopPolling(sessionId);
-  }
-}
-
-export function isPolling(sessionId: string): boolean {
-  return activePollers.has(sessionId);
-}
+export function startPolling(_sessionId: string): void { /* no-op */ }
+export function stopPolling(_sessionId: string): void { /* no-op */ }
+export function stopAllPolling(): void { /* no-op */ }
+export function isPolling(_sessionId: string): boolean { return false; }
+export function setGlobalPollCallbacks(_a: unknown, _b: unknown): void { /* no-op */ }
 
 // ============================================
 // UTILITIES

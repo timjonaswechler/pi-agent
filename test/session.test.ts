@@ -1,56 +1,98 @@
 import { describe, it, expect } from 'vitest';
+import {
+  createSession,
+  readSession,
+  writeSession,
+  addQuestion,
+  getPendingQuestions,
+  answerQuestion,
+  waitForAnswer,
+  deleteSession,
+} from '../src/features/session/index.ts';
 
-// These tests just document the module structure
-// Full integration tests would require mocking ExtensionAPI
-
-describe('Session Module', () => {
-  describe('exports', () => {
-    it('has expected session functions', () => {
-      // We can't dynamically import due to ESM resolution issues in tests
-      // But we document expected exports here
-      const expectedExports = [
-        'createSession',
-        'readSession',
-        'writeSession',
-        'addQuestion',
-        'getPendingQuestions',
-        'answerQuestion',
-        'startPolling',
-        'stopPolling',
-        'setGlobalPollCallbacks',
-      ];
-      // This test documents what should exist
-      expect(expectedExports.length).toBeGreaterThan(0);
+describe('session storage and question flow', () => {
+  it('writes and reads session updates', () => {
+    const session = createSession('reviewer', 'reviewer', 'parent-1', {
+      spawnType: 'solo',
+      teamName: undefined,
     });
-  });
-});
 
-describe('Manager Bridge', () => {
-  describe('exports', () => {
-    it('has expected manager bridge functions', () => {
-      const expectedExports = [
-        'managerAnswer',
-        'forwardQuestionToUser',
-        'setManagerMode',
-        'isManagerMode',
-        'getAllPendingManagerQuestions',
-        'onManagerEvent',
-      ];
-      expect(expectedExports.length).toBeGreaterThan(0);
+    const stored = readSession(session.sessionId);
+    expect(stored).toMatchObject({
+      sessionId: session.sessionId,
+      subagentId: 'reviewer',
+      agentProfile: 'reviewer',
+      parentSessionId: 'parent-1',
+      spawnType: 'solo',
+      status: 'idle',
     });
-  });
-});
 
-describe('Core Module Structure', () => {
-  it('has all core directories', () => {
-    const coreModules = [
-      'teams',
-      'spawn',
-      'bridge',
-      'session',
-      'tools',
-      'types',
-    ];
-    expect(coreModules.length).toBe(6);
+    stored!.status = 'running';
+    writeSession(stored!);
+
+    const updated = readSession(session.sessionId);
+    expect(updated?.status).toBe('running');
+  });
+
+  it('tracks pending questions and clears them once answered', () => {
+    const session = createSession('reviewer', 'reviewer');
+
+    const pending = addQuestion(session.sessionId, {
+      type: 'manager',
+      question: 'Which path should I take?',
+      context: 'Need direction before editing.',
+    });
+
+    expect(getPendingQuestions(session.sessionId)).toEqual([
+      expect.objectContaining({
+        id: pending.id,
+        question: 'Which path should I take?',
+        context: 'Need direction before editing.',
+      }),
+    ]);
+
+    answerQuestion(session.sessionId, pending.id, 'Take the minimal-change path.');
+
+    const stored = readSession(session.sessionId);
+    const answered = stored?.pendingQuestions.find((q) => q.id === pending.id);
+    expect(answered).toMatchObject({
+      answer: 'Take the minimal-change path.',
+    });
+    expect(stored?.status).toBe('running');
+    expect(getPendingQuestions(session.sessionId)).toEqual([]);
+  });
+
+  it('waitForAnswer resolves when an answer is written later', async () => {
+    const session = createSession('reviewer', 'reviewer');
+    const pending = addQuestion(session.sessionId, {
+      type: 'manager',
+      question: 'Need a blocking clarification.',
+    });
+
+    const waitPromise = waitForAnswer(session.sessionId, pending.id, undefined, 2000);
+
+    setTimeout(() => {
+      answerQuestion(session.sessionId, pending.id, 'Here is the answer.');
+    }, 50);
+
+    await expect(waitPromise).resolves.toBe('Here is the answer.');
+  });
+
+  it('waitForAnswer returns null on timeout', async () => {
+    const session = createSession('reviewer', 'reviewer');
+    const pending = addQuestion(session.sessionId, {
+      type: 'manager',
+      question: 'This will time out.',
+    });
+
+    await expect(waitForAnswer(session.sessionId, pending.id, undefined, 50)).resolves.toBeNull();
+  });
+
+  it('deleteSession removes the stored session file', () => {
+    const session = createSession('reviewer', 'reviewer');
+    expect(readSession(session.sessionId)).not.toBeNull();
+
+    deleteSession(session.sessionId);
+    expect(readSession(session.sessionId)).toBeNull();
   });
 });

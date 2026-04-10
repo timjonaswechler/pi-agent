@@ -101,11 +101,19 @@ let currentCwd = "";
 let teamModeActive = false;
 let currentTeamName = "";
 let pendingDelegationAgent: string | null = null;
+let questionPollerStarted = false;
+const handlingSoloQuestions = new Set<string>();
+const announcedTeamQuestions = new Set<string>();
 
 export function registerCommands(api: ExtensionAPI): void {
   // Store cwd for agent lookups
   api.on("session_start", async (_event, ctx) => {
     currentCwd = ctx.cwd;
+
+    if (!questionPollerStarted && ctx.hasUI) {
+      questionPollerStarted = true;
+      startQuestionPoller(api, ctx);
+    }
   });
 
   api.on("input", async (event, ctx) => {
@@ -121,7 +129,7 @@ export function registerCommands(api: ExtensionAPI): void {
       return { action: "handled" };
     }
 
-    startAgentTask(ctx, agentName, taskDesc);
+    startAgentTask(ctx, agentName, taskDesc, 'solo');
     return { action: "handled" };
   });
 
@@ -158,7 +166,7 @@ export function registerCommands(api: ExtensionAPI): void {
       if (!trimmedArgs) {
         const agents = getAvailableAgents();
         if (agents.length === 0) {
-          ctx.ui.notify("No agents found in ~/.pi/agents/", "warning");
+          ctx.ui.notify("No team members found in ~/.pi/teams/members/", "warning");
           return;
         }
 
@@ -177,7 +185,7 @@ export function registerCommands(api: ExtensionAPI): void {
         return;
       }
 
-      startAgentTask(ctx, agentName, taskDesc);
+      startAgentTask(ctx, agentName, taskDesc, 'solo');
     },
   });
 
@@ -338,13 +346,141 @@ export function registerCommands(api: ExtensionAPI): void {
 // HELPER FUNCTIONS
 // ============================================
 
-function startAgentTask(ctx: any, agentName: string, taskDesc: string): void {
+function startQuestionPoller(api: ExtensionAPI, ctx: any): void {
+  const pollIntervalMs = 500;
+
+  setInterval(() => {
+    void processPendingQuestions(api, ctx);
+  }, pollIntervalMs);
+}
+
+export async function processPendingQuestions(api: Pick<ExtensionAPI, 'sendMessage'>, ctx: any): Promise<void> {
+  if (!ctx?.hasUI) return;
+
+  const pending = session.getAllPendingManagerQuestions();
+  const pendingKeys = new Set(pending.map((item) => `${item.sessionId}:${item.question.id}`));
+
+  for (const key of Array.from(announcedTeamQuestions)) {
+    if (!pendingKeys.has(key)) {
+      announcedTeamQuestions.delete(key);
+    }
+  }
+
+  const soloQuestion = pending.find(
+    (item) => item.spawnType === 'solo' && !handlingSoloQuestions.has(`${item.sessionId}:${item.question.id}`),
+  );
+
+  if (soloQuestion) {
+    const key = `${soloQuestion.sessionId}:${soloQuestion.question.id}`;
+    handlingSoloQuestions.add(key);
+
+    try {
+      const prompt = [
+        `Subagent ${soloQuestion.agentProfile ?? soloQuestion.subagentId} needs clarification.`,
+        soloQuestion.question.question,
+        soloQuestion.question.context ? `Context: ${soloQuestion.question.context}` : undefined,
+      ].filter(Boolean).join('\n\n');
+
+      const answer = await ctx.ui.input(prompt, 'Type your answer for the subagent...');
+
+      session.answerQuestion(
+        soloQuestion.sessionId,
+        soloQuestion.question.id,
+        answer?.trim() || 'User cancelled or provided no answer. Proceed with best judgment.',
+      );
+
+      ctx.ui.notify(
+        `Answered question for ${soloQuestion.agentProfile ?? soloQuestion.subagentId}`,
+        'success',
+      );
+    } catch (error) {
+      session.answerQuestion(
+        soloQuestion.sessionId,
+        soloQuestion.question.id,
+        'User interaction failed. Proceed with best judgment.',
+      );
+      ctx.ui.notify(
+        `Failed to collect answer for ${soloQuestion.agentProfile ?? soloQuestion.subagentId}: ${error instanceof Error ? error.message : String(error)}`,
+        'warning',
+      );
+    } finally {
+      handlingSoloQuestions.delete(key);
+    }
+  }
+
+  for (const teamQuestion of pending.filter((item) => item.spawnType === 'team')) {
+    const key = `${teamQuestion.sessionId}:${teamQuestion.question.id}`;
+    if (announcedTeamQuestions.has(key)) continue;
+
+    announcedTeamQuestions.add(key);
+
+    const message = buildTeamQuestionPrompt(teamQuestion);
+
+    api.sendMessage(
+      {
+        customType: 'team-subagent-question',
+        content: message,
+        display: true,
+        details: {
+          sessionId: teamQuestion.sessionId,
+          questionId: teamQuestion.question.id,
+          subagentId: teamQuestion.subagentId,
+          agentProfile: teamQuestion.agentProfile,
+          spawnType: teamQuestion.spawnType,
+          teamName: teamQuestion.teamName,
+          context: teamQuestion.question.context,
+        },
+      },
+      { deliverAs: 'steer', triggerTurn: true },
+    );
+
+    ctx.ui.notify(
+      `Manager decision needed for ${teamQuestion.agentProfile ?? teamQuestion.subagentId}`,
+      'info',
+    );
+  }
+}
+
+export function buildTeamQuestionPrompt(teamQuestion: {
+  sessionId: string;
+  subagentId: string;
+  spawnType?: 'solo' | 'team';
+  teamName?: string;
+  agentProfile?: string;
+  question: { id: string; question: string; context?: string };
+}): string {
+  const agentLabel = teamQuestion.agentProfile ?? teamQuestion.subagentId;
+  const lines = [
+    `[TEAM SUBAGENT QUESTION] ${agentLabel} is blocked and needs clarification.`,
+    teamQuestion.teamName ? `Team: ${teamQuestion.teamName}` : undefined,
+    `Session ID: ${teamQuestion.sessionId}`,
+    `Question ID: ${teamQuestion.question.id}`,
+    `Question: ${teamQuestion.question.question}`,
+    teamQuestion.question.context ? `Context: ${teamQuestion.question.context}` : undefined,
+    '',
+    'Decide at the manager level:',
+    '- Answer directly yourself if this is an operational or delegated decision.',
+    '- Escalate to the user only if this changes requirements, scope, approval, or business intent.',
+    '',
+    'Then answer the subagent with answer_manager_question using the exact session/question IDs above.',
+    'If you need user input first, use ask_user_question, then forward the resolved answer to the subagent.',
+  ];
+
+  return lines.filter(Boolean).join('\n');
+}
+
+function startAgentTask(
+  ctx: any,
+  agentName: string,
+  taskDesc: string,
+  spawnType: 'solo' | 'team' = 'solo',
+): void {
   ctx.ui.notify(`Starting agent '${agentName}'...`, "info");
   ctx.ui.setStatus("agent", `Running ${agentName}...`);
 
   const { sessionId, promise } = spawn.spawnAndAwait(
     taskDesc,
-    { cwd: ctx.cwd, agent: agentName, mode: 'manager' },
+    { cwd: ctx.cwd, agent: agentName, mode: 'manager', spawnType },
     (msg) => ctx.ui.notify(msg, 'info'),
   );
   ctx.ui.notify(`Agent started: ${sessionId}`, "success");
@@ -365,10 +501,9 @@ function startAgentTask(ctx: any, agentName: string, taskDesc: string): void {
 function getAvailableAgents(): string[] {
   const agents: string[] = [];
   const searchPaths = [
-    join(process.env.HOME || "", ".pi", "agents"),
-    join(process.env.HOME || "", ".pi", "agent-team", "agents"),
-    join(currentCwd, ".pi", "agents"),
-    join(currentCwd, ".pi", "agent-team", "agents"),
+    join(currentCwd, ".pi", "teams", "members"),
+    join(process.env.HOME || "", ".pi", "teams", "members"),
+    join(extRoot, "teams", "members"),
   ];
 
   for (const agentPath of searchPaths) {
@@ -507,4 +642,18 @@ export function getCurrentTeamName(): string {
 export function getTeamConfig(cwd: string): TeamConfig | null {
   const teams = loadTeamsYaml(cwd);
   return teams ? (teams[currentTeamName] ?? null) : null;
+}
+
+export function resetQuestionRoutingStateForTests(): void {
+  handlingSoloQuestions.clear();
+  announcedTeamQuestions.clear();
+}
+
+export function resetTeamsStateForTests(): void {
+  currentCwd = "";
+  teamModeActive = false;
+  currentTeamName = "";
+  pendingDelegationAgent = null;
+  questionPollerStarted = false;
+  resetQuestionRoutingStateForTests();
 }

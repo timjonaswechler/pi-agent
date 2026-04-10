@@ -8,12 +8,14 @@ It is intentionally more implementation-focused than the README and more checkli
 
 ## Milestone 0 — Planning and Structure
 
+_Status: core docs are now in place. GitHub project / child issue splitting can continue incrementally._
+
 Goal: make the project documentation and planning structure clear before implementation continues.
 
 ### Checklist
-- [ ] Rewrite README to describe vision, current capabilities, and architecture direction
-- [ ] Rewrite issue #12 as the umbrella issue
-- [ ] Add a roadmap document with milestones and checklists
+- [x] Rewrite README to describe vision, current capabilities, and architecture direction
+- [x] Rewrite issue #12 as the umbrella issue
+- [x] Add a roadmap document with milestones and checklists
 - [ ] Decide whether to create a GitHub Project board for operational tracking
 - [ ] Split umbrella work into smaller linked issues
 
@@ -70,22 +72,28 @@ Goal: validate the actual manager/subagent workflow end to end.
 This is now the main focus. The critical question is no longer command wiring, but whether the full question/answer loop behaves correctly across spawned processes.
 
 ### Happy path
-- [ ] Manager spawns a subagent
+- [x] Manager spawns a subagent (automated command/tool-layer coverage)
 - [ ] Subagent completes without questions
 - [ ] Final result is returned cleanly
 
 ### Clarification model
-- [ ] Decide the intended behavior for `/agent`-spawned subagents: ask user directly vs ask manager first
-- [ ] Verify which tool path is actually available in a spawned json subagent process
-- [ ] Confirm whether direct `ask_user_question` is supported for user-started subagents in practice or should be treated as unsupported in json subprocess mode
+- [x] Decide the intended behavior for `/agent`-spawned subagents: they always ask the parent orchestration session first
+- [x] Verify which tool path is actually available in a spawned json subagent process
+- [x] Confirm that direct `ask_user_question` is not a supported primary path in json subprocess mode
+- [x] Add spawn-context metadata (`solo` vs `team`) end to end
+- [x] For `solo` subagents, automatically pipe pending questions to the user from the parent session
+- [x] For `team` subagents, surface the question to the active manager with direct-answer vs escalation guidance
+- [x] Add explicit spawned-subagent clarification guidance to spawned prompts
+- [x] Add a reproducible clarification test agent/profile
 - [ ] Document the supported clarification behavior clearly
 
 ### Question/answer path
-- [ ] Create a reproducible test prompt that forces a subagent to ask a clarification question
-- [ ] Subagent asks manager a question
-- [ ] Manager sees pending questions
-- [ ] Manager answers directly
-- [ ] Subagent resumes and completes
+- [x] Create a reproducible test prompt / agent that forces a subagent to ask a clarification question
+- [x] Subagent asks manager a question in the solo path
+- [x] Parent session sees pending questions in the solo path
+- [x] Parent session answers in the solo path
+- [x] Subagent resumes and completes in the solo test flow
+- [x] Manager answers directly in the team path (tool/session-level automated coverage)
 
 ### Human escalation path
 - [ ] Manager escalates a subagent question to the user
@@ -103,6 +111,16 @@ This is now the main focus. The critical question is no longer command wiring, b
 - [ ] Kill behavior is defined and tested
 - [ ] Crash behavior is defined and tested
 - [ ] Add a slower/debug subagent scenario to make `/kill` easy to verify manually
+
+### Notes from current implementation state
+- spawn-time tool enforcement now parses agent frontmatter `tools`
+- required orchestration tools are merged into the effective child toolset
+- child sessions enforce effective tools via `setActiveTools(...)`
+- member profiles are now resolved from `teams/members` paths instead of legacy `.pi/agents`
+- solo clarification currently uses a plain input prompt in the parent session
+- automated coverage now exists for implemented command-layer and question-routing behavior (`/agent`, `/list`, `/kill`, `/team`, solo clarification routing, team clarification surfacing, direct manager answer/unblock)
+- subprocess-backed clarification integration coverage is now available behind an opt-in integration test guard
+- follow-up UX work for reusing/extending `ask_user_question` is tracked in issue #13
 
 ### Done when
 - one happy path works reliably
@@ -204,7 +222,7 @@ Goal: make orchestration primitives reusable by other Pi extensions.
 
 Additional notes captured from current testing:
 - [ ] Should `/list` and `/kill` eventually be replaced by a single interactive agent-management command?
-- [ ] Should a spawned subagent in json/background mode ever ask the user directly, or should all clarification go through a manager path?
+- [x] Spawned subagents in json/background mode should not ask the user directly; clarification should go through the parent orchestration path
 
 These should be revisited as milestone work advances.
 
@@ -237,3 +255,4 @@ Recommended columns:
 - `README.md` / `readme.md`: vision + current status
 - `ISSUE-DRAFT.md`: umbrella issue body
 - `ROADMAP.md`: execution checklist
+- issue #13: follow-up UX work for solo-subagent question UI

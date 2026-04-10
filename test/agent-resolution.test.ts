@@ -49,30 +49,30 @@ describe('agent resolution', () => {
     expect(file).toBe(path.join(cwdDir, '.pi', 'teams', 'leaders', 'lead.md'));
   });
 
-  it('prefers local agents over global agents', () => {
+  it('prefers local team members over global team members', () => {
     writeAgentFile(
-      path.join(homeDir, '.pi', 'agents', 'researcher.md'),
+      path.join(homeDir, '.pi', 'teams', 'members', 'researcher.md'),
       'Global researcher',
       'You are the global researcher.',
     );
     writeAgentFile(
-      path.join(cwdDir, '.pi', 'agents', 'researcher.md'),
+      path.join(cwdDir, '.pi', 'teams', 'members', 'researcher.md'),
       'Local researcher',
       'You are the local researcher.',
     );
 
     const file = findAgentFile('researcher', cwdDir);
-    expect(file).toBe(path.join(cwdDir, '.pi', 'agents', 'researcher.md'));
+    expect(file).toBe(path.join(cwdDir, '.pi', 'teams', 'members', 'researcher.md'));
   });
 
-  it('prefers local leaders over local agents with the same name', () => {
+  it('prefers local leaders over local team members with the same name', () => {
     writeAgentFile(
       path.join(cwdDir, '.pi', 'teams', 'leaders', 'reviewer.md'),
       'Local leader reviewer',
       'You are the reviewer leader.',
     );
     writeAgentFile(
-      path.join(cwdDir, '.pi', 'agents', 'reviewer.md'),
+      path.join(cwdDir, '.pi', 'teams', 'members', 'reviewer.md'),
       'Local reviewer agent',
       'You are the reviewer agent.',
     );
@@ -81,12 +81,12 @@ describe('agent resolution', () => {
     expect(file).toBe(path.join(cwdDir, '.pi', 'teams', 'leaders', 'reviewer.md'));
   });
 
-  it('getAgentInfo returns description and extracted system prompt', () => {
-    const filePath = path.join(cwdDir, '.pi', 'agents', 'implementer.md');
-    writeAgentFile(
+  it('getAgentInfo returns description, parsed tools, and extracted system prompt', () => {
+    const filePath = path.join(cwdDir, '.pi', 'teams', 'members', 'implementer.md');
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(
       filePath,
-      'Builds features',
-      'You are an implementation specialist.\nMake careful code changes.',
+      `---\nname: implementer\ndescription: Builds features\ntools: read, bash, ask_manager_question\nmodel: claude-haiku-4-5\n---\nYou are an implementation specialist.\nMake careful code changes.\n`,
     );
 
     const info = getAgentInfo('implementer', cwdDir);
@@ -95,6 +95,8 @@ describe('agent resolution', () => {
       name: 'implementer',
       filePath,
       description: 'Builds features',
+      tools: ['read', 'bash', 'ask_manager_question'],
+      model: 'claude-haiku-4-5',
       systemPrompt: 'You are an implementation specialist.\nMake careful code changes.',
     });
   });

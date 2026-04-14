@@ -5,16 +5,12 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text, SelectList, Container } from "@mariozechner/pi-tui";
 import { existsSync, readFileSync, readdirSync } from "fs";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import { join } from "path";
 import yaml from "js-yaml";
 import * as session from "../session/index.ts";
 import * as spawn from "../sub-agent/index.ts";
 import { getAgentInfo } from "../sub-agent/index.ts";
-
-// ESM: get extension root directory
-const __filename = fileURLToPath(import.meta.url);
-const extRoot = dirname(dirname(dirname(dirname(__filename)))); // src/features/teams/index.ts → teams/ → features/ → src/ → extension root
+import { getTeamsYamlSearchPaths, getMemberDirSearchPaths } from "./paths.ts";
 
 // ============================================
 // TEAM CONFIG LOADING
@@ -29,16 +25,11 @@ interface TeamConfig {
 type TeamsYaml = Record<string, TeamConfig>;
 
 export function loadTeamsYaml(cwd: string): TeamsYaml | null {
-  // Search paths (lowest to highest priority)
-  const home = process.env.HOME || "";
-  const searchPaths: Array<{ path: string; priority: number }> = [
-    { path: join(extRoot, "teams", "teams.yaml"), priority: 1 }, // Built-in (lowest)
-    { path: join(home, ".pi", "teams", "teams.yaml"), priority: 2 }, // Global
-    { path: join(cwd, ".pi", "teams", "teams.yaml"), priority: 3 }, // Local (highest)
-  ];
+  const searchPaths = getTeamsYamlSearchPaths(cwd);
 
   // Collect all teams, higher priority wins
   const teams: TeamsYaml = {};
+  const teamPriorities: Record<string, number> = {};
   let foundAny = false;
 
   for (const { path, priority } of searchPaths) {
@@ -47,11 +38,11 @@ export function loadTeamsYaml(cwd: string): TeamsYaml | null {
       const content = readFileSync(path, "utf-8");
       const parsed = parseTeamsYaml(content);
 
-      // Merge, but higher priority overwrites lower
+      // Merge: only overwrite if this source has strictly higher priority
       for (const [name, config] of Object.entries(parsed)) {
-        if (!teams[name] || priority >= 2) {
-          // Global/Local always overwrites built-in
+        if (!teams[name] || priority > (teamPriorities[name] ?? 0)) {
           teams[name] = config;
+          teamPriorities[name] = priority;
         }
       }
     }
@@ -102,6 +93,7 @@ let teamModeActive = false;
 let currentTeamName = "";
 let pendingDelegationAgent: string | null = null;
 let questionPollerStarted = false;
+let questionPollerInterval: ReturnType<typeof setInterval> | null = null;
 const handlingSoloQuestions = new Set<string>();
 const announcedTeamQuestions = new Set<string>();
 
@@ -348,10 +340,17 @@ export function registerCommands(api: ExtensionAPI): void {
 
 function startQuestionPoller(api: ExtensionAPI, ctx: any): void {
   const pollIntervalMs = 500;
-
-  setInterval(() => {
+  questionPollerInterval = setInterval(() => {
     void processPendingQuestions(api, ctx);
   }, pollIntervalMs);
+}
+
+export function stopQuestionPoller(): void {
+  if (questionPollerInterval !== null) {
+    clearInterval(questionPollerInterval);
+    questionPollerInterval = null;
+    questionPollerStarted = false;
+  }
 }
 
 export async function processPendingQuestions(api: Pick<ExtensionAPI, 'sendMessage'>, ctx: any): Promise<void> {
@@ -500,11 +499,7 @@ function startAgentTask(
 
 function getAvailableAgents(): string[] {
   const agents: string[] = [];
-  const searchPaths = [
-    join(currentCwd, ".pi", "teams", "members"),
-    join(process.env.HOME || "", ".pi", "teams", "members"),
-    join(extRoot, "teams", "members"),
-  ];
+  const searchPaths = getMemberDirSearchPaths(currentCwd);
 
   for (const agentPath of searchPaths) {
     if (!existsSync(agentPath)) continue;
@@ -540,7 +535,9 @@ function getActiveSessions() {
         sessions.push(state);
       }
     }
-  } catch {}
+  } catch (err) {
+    console.error('[pi-agent] Failed to read session directory:', err);
+  }
 
   return sessions;
 }
@@ -654,6 +651,6 @@ export function resetTeamsStateForTests(): void {
   teamModeActive = false;
   currentTeamName = "";
   pendingDelegationAgent = null;
-  questionPollerStarted = false;
+  stopQuestionPoller();
   resetQuestionRoutingStateForTests();
 }

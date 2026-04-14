@@ -5,6 +5,7 @@ import {
   writeSession,
   addQuestion,
   getPendingQuestions,
+  getAllPendingManagerQuestions,
   answerQuestion,
   waitForAnswer,
   deleteSession,
@@ -34,6 +35,21 @@ describe('session storage and question flow', () => {
     expect(updated?.status).toBe('running');
   });
 
+  it('stores session spawn metadata when creating a session', () => {
+    const session = createSession('researcher', 'researcher', undefined, {
+      spawnType: 'solo',
+      teamName: undefined,
+    });
+
+    const stored = readSession(session.sessionId);
+    expect(stored).toMatchObject({
+      sessionId: session.sessionId,
+      subagentId: 'researcher',
+      agentProfile: 'researcher',
+      spawnType: 'solo',
+    });
+  });
+
   it('tracks pending questions and clears them once answered', () => {
     const session = createSession('reviewer', 'reviewer');
 
@@ -60,6 +76,45 @@ describe('session storage and question flow', () => {
     });
     expect(stored?.status).toBe('running');
     expect(getPendingQuestions(session.sessionId)).toEqual([]);
+  });
+
+  it('copies session metadata into pending questions and aggregated manager-question lookup', () => {
+    const session = createSession('team-reviewer', 'team-reviewer', undefined, {
+      spawnType: 'team',
+      teamName: 'engineering',
+    });
+
+    const pending = addQuestion(session.sessionId, {
+      type: 'manager',
+      question: 'Should I optimize for readability or performance?',
+      context: 'Both are possible tradeoffs.',
+    });
+
+    expect(pending).toMatchObject({
+      type: 'manager',
+      question: 'Should I optimize for readability or performance?',
+      spawnType: 'team',
+      teamName: 'engineering',
+      agentProfile: 'team-reviewer',
+    });
+
+    expect(getAllPendingManagerQuestions()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sessionId: session.sessionId,
+          subagentId: 'team-reviewer',
+          spawnType: 'team',
+          teamName: 'engineering',
+          agentProfile: 'team-reviewer',
+          question: expect.objectContaining({
+            id: pending.id,
+            spawnType: 'team',
+            teamName: 'engineering',
+            agentProfile: 'team-reviewer',
+          }),
+        }),
+      ]),
+    );
   });
 
   it('waitForAnswer resolves when an answer is written later', async () => {

@@ -1,0 +1,11 @@
+# Test fixture built-in teams for pi-agent tests
+
+Default-Team:
+  manager: leaders/team-leader
+  members:
+    - clarification-tester
+
+Coding-Team:
+  manager: leaders/team-leader
+  members:
+    - happy-path-tester

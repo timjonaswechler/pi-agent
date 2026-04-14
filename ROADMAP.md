@@ -71,12 +71,7 @@ Goal: validate the actual manager/subagent workflow end to end.
 
 This is now the main focus. The critical question is no longer command wiring, but whether the full question/answer loop behaves correctly across spawned processes.
 
-### Happy path
-- [x] Manager spawns a subagent (automated command/tool-layer coverage)
-- [ ] Subagent completes without questions
-- [ ] Final result is returned cleanly
-
-### Clarification model
+### Done
 - [x] Decide the intended behavior for `/agent`-spawned subagents: they always ask the parent orchestration session first
 - [x] Verify which tool path is actually available in a spawned json subagent process
 - [x] Confirm that direct `ask_user_question` is not a supported primary path in json subprocess mode
@@ -85,32 +80,24 @@ This is now the main focus. The critical question is no longer command wiring, b
 - [x] For `team` subagents, surface the question to the active manager with direct-answer vs escalation guidance
 - [x] Add explicit spawned-subagent clarification guidance to spawned prompts
 - [x] Add a reproducible clarification test agent/profile
-- [ ] Document the supported clarification behavior clearly
-
-### Question/answer path
 - [x] Create a reproducible test prompt / agent that forces a subagent to ask a clarification question
 - [x] Subagent asks manager a question in the solo path
 - [x] Parent session sees pending questions in the solo path
 - [x] Parent session answers in the solo path
 - [x] Subagent resumes and completes in the solo test flow
 - [x] Manager answers directly in the team path (tool/session-level automated coverage)
+- [x] Manager spawns a subagent (automated command/tool-layer coverage)
 
-### Human escalation path
-- [ ] Manager escalates a subagent question to the user
-- [ ] User answer is returned to manager
-- [ ] Manager forwards answer to subagent
-- [ ] Subagent resumes and completes
-
-### Parallel path
-- [ ] Manager spawns multiple subagents in parallel
-- [ ] Results are aggregated correctly
-- [ ] One failed subagent does not corrupt all session state
-
-### Failure handling
-- [ ] Timeout behavior is defined and tested
-- [ ] Kill behavior is defined and tested
-- [ ] Crash behavior is defined and tested
-- [ ] Add a slower/debug subagent scenario to make `/kill` easy to verify manually
+### Completion status
+- [x] Document the supported clarification behavior clearly
+- [x] Document the supported clarification model in user-facing docs
+- [x] Explain solo vs team routing and when manager escalation is expected
+- [x] Manager spawns multiple subagents in parallel (automated tool/integration coverage)
+- [x] Results are aggregated correctly
+- [x] One failed subagent does not corrupt all session state
+- [x] Timeout behavior is defined and tested
+- [x] Crash behavior is defined and tested
+- [x] Add a slower/debug subagent scenario to make `/kill` easy to verify manually
 
 ### Notes from current implementation state
 - spawn-time tool enforcement now parses agent frontmatter `tools`
@@ -119,7 +106,7 @@ This is now the main focus. The critical question is no longer command wiring, b
 - member profiles are now resolved from `teams/members` paths instead of legacy `.pi/agents`
 - solo clarification currently uses a plain input prompt in the parent session
 - automated coverage now exists for implemented command-layer and question-routing behavior (`/agent`, `/list`, `/kill`, `/team`, solo clarification routing, team clarification surfacing, direct manager answer/unblock)
-- subprocess-backed clarification integration coverage is now available behind an opt-in integration test guard
+- subprocess-backed clarification integration coverage is now available behind an opt-in integration test guard (`npm run test:integration`)
 - follow-up UX work for reusing/extending `ask_user_question` is tracked in issue #13
 
 ### Done when
@@ -131,7 +118,7 @@ This is now the main focus. The critical question is no longer command wiring, b
 
 ## Milestone 3 — Finalize Team and Agent Resolution
 
-Goal: remove ambiguity around configuration and search paths.
+Goal: remove ambiguity around configuration and search paths, and harden the runtime semantics around orchestration edge cases.
 
 ### Checklist
 - [ ] Define final `teams.yaml` schema
@@ -141,6 +128,11 @@ Goal: remove ambiguity around configuration and search paths.
 - [ ] Verify placeholder substitution behavior
 - [ ] Add tests for lookup precedence
 - [ ] Document resolution behavior in the README
+
+### Post-M2 hardening
+- [ ] Distinguish manual kill vs timeout clearly in result semantics and user-facing messages
+- [ ] Add a more explicit non-zero child-exit crash test beyond the current process/spawn error coverage
+- [ ] Optionally add a full `/kill` command-to-live-process integration test
 
 ### Done when
 - users can predict where teams and profiles are resolved from

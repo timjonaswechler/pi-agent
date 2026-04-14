@@ -9,7 +9,7 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:integration": "PI_INTEGRATION=1 vitest run test/subprocess-clarification.integration.test.ts"
+    "test:integration": "PI_INTEGRATION=1 vitest run test/subprocess-*.integration.test.ts"
   },
   "devDependencies": {
     "vitest": "^3.0.0"

@@ -2,6 +2,7 @@
 // Must set env BEFORE importing any modules
 
 process.env.PI_AGENT_SESSION_DIR = '/tmp/pi-agent-test-sessions';
+process.env.PI_AGENT_BUILTIN_TEAMS_DIR = '/Users/tim-jonaswechler/.pi/agent/extensions/pi-agent/test/fixtures/teams';
 
 import { beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';

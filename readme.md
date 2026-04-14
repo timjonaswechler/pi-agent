@@ -2,7 +2,7 @@
 
 `pi-agent` is a Pi extension for **multi-agent orchestration**.
 
-It aims to let a developer delegate work to a **single agent** or a **team of agents** inside Pi, while staying in control of the session and only stepping in when clarification or approval is needed.
+It lets a developer delegate work to either a **single team member** or a **team of agents** inside Pi, while staying in control of the session and only stepping in when clarification or approval is needed.
 
 ## Vision
 
@@ -10,7 +10,7 @@ The long-term goal is to make Pi feel less like a single assistant and more like
 
 A user should be able to:
 
-- ask one specialist agent to handle a focused task
+- ask one specialist team member to handle a focused task
 - activate a team manager that can delegate work to several subagents
 - let the manager coordinate questions, blockers, and results
 - stay in the loop only as the final escalation point
@@ -27,20 +27,23 @@ Example experiences we want:
 
 `pi-agent` should provide a reliable orchestration layer for Pi with:
 
-- agent spawning
+- subagent spawning
 - team mode activation
-- manager ↔ subagent coordination
+- parent ↔ subagent coordination
 - human escalation when necessary
 - active session tracking
 - a path toward dashboards, memory, and reusable orchestration primitives
 
 ## Current Capabilities
 
-The project already has a meaningful foundation.
+The project now has a real working foundation.
 
 ### Commands
 
-- `/agent <name> <task...>` — spawn a single subagent
+- `/agent` — open team member selection and arm the next message as the task
+- `/agent <name>` — arm that team member for the next message
+- `/agent <name> <task...>` — spawn immediately
+- `/agent cancel` — cancel pending delegation
 - `/team <name>` — activate a team manager for the current session
 - `/list` — list active subagents
 - `/kill <session-id>` — kill a running subagent
@@ -48,27 +51,29 @@ The project already has a meaningful foundation.
 ### Tools
 
 - `run_subagents` — manager spawns multiple subagents in parallel
-- `ask_manager_question` — subagent asks its manager a blocking question
-- `get_pending_questions` — manager lists unanswered subagent questions
+- `ask_manager_question` — subagent asks the parent orchestration session a blocking question
+- `get_pending_questions` — manager/parent lists unanswered subagent questions
 - `answer_manager_question` — manager answers a pending subagent question
 - `ask_user_question` — manager escalates a question to the human when needed
 
-### Communication model
+## Current Communication Model
 
 There are two main modes:
 
-#### 1. User → Subagent
-The user directly spawns a single agent.
+### 1. User → Solo subagent
+The user directly spawns a single team member.
 
 ```text
 User ──/agent──→ Subagent
                    ↓
-           may ask user directly
+         ask parent orchestration session
+                   ↓
+          parent asks user if needed
                    ↓
               returns result
 ```
 
-#### 2. User → Manager → Subagents
+### 2. User → Manager → Team subagents
 The user activates a team. The manager decides how to delegate work.
 
 ```text
@@ -85,24 +90,79 @@ User ──/team──→ Manager
               work continues
 ```
 
+## Clarification Behavior
+
+pi-agent currently supports one clear clarification model.
+
+### Solo path (`/agent`)
+- A spawned solo subagent does **not** ask the end user directly in json/background subprocess mode.
+- If it is blocked, it uses `ask_manager_question`.
+- In an interactive parent session, pi-agent surfaces that question to the user, collects the answer, and forwards it back to the subagent.
+
+### Team path (`/team`)
+- Team subagents do **not** talk to the user directly.
+- If a team subagent is blocked, it uses `ask_manager_question`.
+- pi-agent surfaces that blocked question to the active manager in the main session.
+- The manager can then either:
+  - answer directly with `answer_manager_question`, or
+  - escalate to the user with `ask_user_question`, then forward the resolved answer with `answer_manager_question`.
+
+### Tool roles
+- `ask_manager_question` = subagent → manager
+- `answer_manager_question` = manager → subagent
+- `ask_user_question` = manager/interactive parent session → user
+
+### Practical rule
+- In solo mode, the parent session handles user clarification directly.
+- In team mode, only the manager should ask the user questions.
+- Specialist/team subagents should always escalate through the manager instead of opening a direct user conversation.
+
 ## Current State
 
-### Working
+### Working / recently fixed
 
-- subagent spawning exists
-- manager/subagent question flow exists
-- manager answer flow exists
-- pending question lookup exists
-- `/agent`, `/team`, `/list`, `/kill` exist
-- placeholder substitution for team leader prompts exists
-- context filtering exists in some form
+- `/team` injects hidden team context for the next turn without triggering an immediate answer
+- `/agent` supports pending next-message delegation and `/agent cancel`
+- `/list` works for active sessions
+- YAML loading now uses `js-yaml`
+- dead bridge/member/leader code has been removed
+- spawned child sessions now parse agent frontmatter `tools`
+- required orchestration tools are merged into the effective child toolset
+- child sessions enforce active tools via `setActiveTools(...)`
+- member profiles are resolved from `teams/members`
+- automatic solo-subagent question piping exists in the parent session
+- a deterministic clarification test agent exists for M2 verification
 
-### Known issues
+### Still in progress / not fully verified
 
-- `/team` currently injects the wrong message shape
-- system prompt file loading via `@file` is not working correctly
-- YAML loading should move to `js-yaml`
-- some old modules/tests need cleanup or removal
+- manager-side handling for `team` subagent questions
+- broader real-world consistency of clarification behavior for non-test agents
+- final output extraction confidence across more scenarios
+- multi-subagent aggregation confidence
+- `/kill` needs slower/manual verification to test comfortably
+
+### Follow-up UX work
+
+- solo clarification currently uses a plain input prompt in the parent session
+- a better `ask_user_question`-style UX for solo-subagent clarification is planned later
+- this is tracked separately in issue #13
+
+## Team Member and Team Paths
+
+### Team definitions
+- built-in: `teams/teams.yaml`
+- global: `~/.pi/teams/teams.yaml`
+- local: `.pi/teams/teams.yaml`
+
+### Team leaders
+- built-in: `teams/leaders/`
+- global: `~/.pi/teams/leaders/`
+- local: `.pi/teams/leaders/`
+
+### Team members
+- built-in: `teams/members/`
+- global: `~/.pi/teams/members/`
+- local: `.pi/teams/members/`
 
 ## Architecture Direction
 
@@ -113,7 +173,7 @@ CLI / TUI
   ├─ commands: /agent, /team, /list, /kill
   ├─ active-status / task-board UI
   ↓
-Manager agent
+Parent / manager session
   ├─ receives user tasks
   ├─ delegates to subagents
   ├─ answers or escalates questions
@@ -128,15 +188,15 @@ Session bridge
   ├─ stores pending questions/answers
   └─ unblocks waiting subagents
   ↓
-Team + agent resolution
+Team + member resolution
   ├─ teams.yaml
   ├─ leader prompt resolution
-  └─ agent profile lookup
+  └─ member profile lookup
 ```
 
 ## Documentation Structure
 
-This repo should be structured around a few clear planning documents:
+This repo is structured around a few clear planning documents:
 
 - `README.md` / `readme.md` — vision, current capabilities, and architecture summary
 - `ISSUE-DRAFT.md` — the full umbrella issue body for GitHub issue #12
@@ -148,7 +208,7 @@ The implementation should proceed in phases:
 
 1. stabilize the current core
 2. verify the complete manager/subagent loop
-3. harden team and agent resolution
+3. harden team and member resolution
 4. add visibility/dashboard support
 5. add manager memory
 6. add subagent feedback/progress updates

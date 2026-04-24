@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { extractSystemPrompt, findAgentFile, getAgentInfo } from '../src/features/sub-agent/index.ts';
+import { findAgentFile, getAgentInfo } from '../src/features/sub-agent/index.ts';
 
 function makeTempDir(prefix: string) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -101,25 +101,27 @@ describe('agent resolution', () => {
     });
   });
 
-  it('returns the markdown body after frontmatter when extracting a system prompt', () => {
+  it('returns the markdown body after frontmatter via getAgentInfo', () => {
     const file = path.join(cwdDir, '.pi', 'teams', 'members', 'prompt-agent.md');
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(
       file,
-      `---\nname: researcher\ndescription: Finds answers\n---\nYou are a careful researcher.\nFocus on evidence and clear summaries.\n`,
+      `---\nname: prompt-agent\ndescription: Finds answers\n---\nYou are a careful researcher.\nFocus on evidence and clear summaries.\n`,
     );
 
-    expect(extractSystemPrompt(file)).toBe(
+    expect(getAgentInfo('prompt-agent', cwdDir)?.systemPrompt).toBe(
       'You are a careful researcher.\nFocus on evidence and clear summaries.',
     );
   });
 
-  it('returns the whole file when no frontmatter exists while extracting a system prompt', () => {
+  it('returns the whole file when no frontmatter exists via getAgentInfo', () => {
     const file = path.join(cwdDir, '.pi', 'teams', 'members', 'plain-agent.md');
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, 'You are an implementation agent.');
 
-    expect(extractSystemPrompt(file)).toBe('You are an implementation agent.');
+    expect(getAgentInfo('plain-agent', cwdDir)?.systemPrompt).toBe(
+      'You are an implementation agent.',
+    );
   });
 
   it('returns null for unknown agents', () => {

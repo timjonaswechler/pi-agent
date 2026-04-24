@@ -28,11 +28,10 @@ export function registerRunSubagentsTool(api: ExtensionAPI): void {
       'All agents run concurrently — results are returned when ALL have finished.',
       '',
       'If a sub-agent needs manager clarification (ask_manager_question), it will pause.',
-      'You can answer pending questions with answer_manager_question while waiting,',
-      'but note: run_subagents blocks until completion, so the manager-question',
-      'pattern works best with spawn_background + collect_results for longer tasks.',
+      'Use answer_manager_question in another turn (or have the parent session',
+      'route the question) to unblock it.',
       '',
-      'Use `agent` to specify a named agent profile from ~/.pi/agents/ or .pi/agents/.',
+      'Use `agent` to specify a named team member profile from ~/.pi/teams/members/ or .pi/teams/members/.',
     ].join('\n'),
     parameters: Type.Object({
       tasks: Type.Array(
@@ -43,7 +42,7 @@ export function registerRunSubagentsTool(api: ExtensionAPI): void {
           agent: Type.Optional(
             Type.String({
               description:
-                'Agent profile name (e.g. "researcher", "git-expert"). Loads system prompt from .pi/agents/<name>.md',
+                'Team member profile name (e.g. "researcher", "git-expert"). Loads system prompt from .pi/teams/members/<name>.md',
             }),
           ),
         }),
@@ -82,7 +81,9 @@ export function registerRunSubagentsTool(api: ExtensionAPI): void {
             cwd: ctx.cwd,
             agent: task.agent,
             mode: 'manager',
+            spawnType: 'team',
             timeoutMs,
+            signal,
           },
           (msg) => {
             onUpdate?.({ content: [{ type: 'text', text: msg }] });
@@ -208,8 +209,9 @@ export function registerAskManagerQuestionTool(api: ExtensionAPI): void {
         context: params.context,
       });
 
-      // Block until answered (or signal aborts / timeout)
-      const answer = await session.waitForAnswer(sessionId, pending.id, signal);
+      // Block until answered — use the same timeout the parent gave us
+      const timeoutMs = parseInt(process.env.PI_AGENT_TIMEOUT_MS ?? '', 10) || 10 * 60 * 1000;
+      const answer = await session.waitForAnswer(sessionId, pending.id, signal, timeoutMs);
 
       if (answer === null) {
         return {
@@ -324,7 +326,9 @@ export function registerGetPendingQuestionsTool(api: ExtensionAPI): void {
     parameters: Type.Object({}),
 
     async execute(_toolCallId, _params, _signal, _onUpdate, _ctx) {
-      const pending = session.getAllPendingManagerQuestions();
+      const pending = session.getAllPendingManagerQuestions(
+        session.getOrchestrationRootId(),
+      );
 
       if (pending.length === 0) {
         return {
@@ -332,10 +336,15 @@ export function registerGetPendingQuestionsTool(api: ExtensionAPI): void {
         };
       }
 
-      const lines = pending.map(
-        (p) =>
-          `- Session \`${p.sessionId}\` (${p.subagentId})\n  Question ID: \`${p.question.id}\`\n  Question: ${p.question.question}${p.question.context ? `\n  Context: ${p.question.context}` : ''}`,
-      );
+      const lines = pending.map((p) => {
+        const meta = [
+          p.spawnType ? `spawn=${p.spawnType}` : null,
+          p.teamName ? `team=${p.teamName}` : null,
+          p.agentProfile ? `agent=${p.agentProfile}` : null,
+        ].filter(Boolean).join(', ');
+
+        return `- Session \`${p.sessionId}\` (${p.subagentId})${meta ? `\n  Meta: ${meta}` : ''}\n  Question ID: \`${p.question.id}\`\n  Question: ${p.question.question}${p.question.context ? `\n  Context: ${p.question.context}` : ''}`;
+      });
 
       return {
         content: [

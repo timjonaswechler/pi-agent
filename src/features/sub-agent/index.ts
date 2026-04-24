@@ -4,14 +4,13 @@
 
 import { spawn as childSpawn } from 'child_process';
 import { existsSync, readFileSync, statSync } from 'fs';
-import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { join } from 'path';
 import yaml from 'js-yaml';
 import * as session from '../session/index.ts';
-import { getBuiltInTeamsRoot, getLeaderDirSearchPaths, getMemberDirSearchPaths, getExtensionRoot } from '../teams/paths.ts';
+import { getLeaderDirSearchPaths, getMemberDirSearchPaths, getExtensionRoot } from '../../shared/paths.ts';
+import type { SubagentResult } from '../../core/types.ts';
+export type { SubagentResult };
 
-const __filename = fileURLToPath(import.meta.url);
-// src/features/sub-agent/index.ts → src/features/ → src/ → extension root
 const extRoot = getExtensionRoot();
 const BUILTIN_TOOLS = new Set(['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls']);
 const SPAWNED_SUBAGENT_CLARIFICATION_POLICY = `
@@ -52,12 +51,6 @@ export function findAgentFile(agentName: string, cwd: string): string | null {
     }
   }
   return null;
-}
-
-export function extractSystemPrompt(filePath: string): string {
-  const content = readFileSync(filePath, 'utf-8');
-  const match = content.match(/^---\n[\s\S]*?---\n([\s\S]*)$/);
-  return match ? match[1].trim() : content;
 }
 
 export interface AgentInfo {
@@ -126,41 +119,26 @@ export function getAgentInfo(agentName: string, cwd: string): AgentInfo | null {
 }
 
 // ============================================
-// RESULT TYPE
-// ============================================
-
-export interface SubagentResult {
-  sessionId: string;
-  agent: string;
-  task: string;
-  success: boolean;
-  /** Final assistant text from the subagent's last message */
-  output: string;
-  /** Any error message */
-  error?: string;
-  elapsedMs: number;
-  /** Questions the subagent asked the manager (if any) */
-  pendingQuestions: Array<{ questionId: string; question: string }>;
-}
-
-// ============================================
 // SPAWN + AWAIT
 // ============================================
 
 export interface SpawnOptions {
   cwd: string;
   agent?: string;
-  /** user = subagent can ask_user_question (needs TUI - usually not available)
-   *  manager = subagent asks manager via ask_manager_question */
-  mode?: 'user' | 'manager';
+  /** manager = subagent asks its manager via ask_manager_question (only supported mode today) */
+  mode: 'manager';
   spawnType?: 'solo' | 'team';
   teamName?: string;
   parentSessionId?: string;
+  rootSessionId?: string;
   timeoutMs?: number;
+  signal?: AbortSignal;
 }
 
 // Track active processes for kill support
 const activeProcesses = new Map<string, ReturnType<typeof childSpawn>>();
+// Intended termination reason, set before signalling the child
+const terminationReasons = new Map<string, { status: 'killed' | 'timeout'; reason: string }>();
 
 /**
  * Spawn a subagent and wait for it to complete.
@@ -174,17 +152,20 @@ export function spawnAndAwait(
   const {
     cwd,
     agent,
-    mode = 'user',
     spawnType = 'solo',
     teamName,
     parentSessionId,
+    rootSessionId,
     timeoutMs = 5 * 60 * 1000,
+    signal,
   } = options;
 
-  // Create session for tracking
+  const resolvedRootId = rootSessionId ?? session.getOrchestrationRootId();
+
   const state = session.createSession(agent || 'default', agent, parentSessionId, {
     spawnType,
     teamName,
+    rootSessionId: resolvedRootId,
   });
   session.updateSessionStatus(state.sessionId, 'running');
 
@@ -192,20 +173,30 @@ export function spawnAndAwait(
   const sessionId = state.sessionId;
 
   const promise = new Promise<SubagentResult>((resolve) => {
+    // Short-circuit if already aborted before spawn
+    if (signal?.aborted) {
+      session.updateSessionStatus(sessionId, 'killed', 'cancelled_by_signal');
+      session.deleteSession(sessionId);
+      resolve({
+        sessionId, agent: agent || 'default', task, success: false,
+        output: '', error: 'Aborted before spawn', reason: 'cancelled_by_signal',
+        elapsedMs: 0, pendingQuestions: [],
+      });
+      return;
+    }
+
     // ── Build pi args ──────────────────────────────────────────────────────
     const args: string[] = [
       '--mode', 'json',
-      '--no-session',       // ephemeral — don't pollute session history
-      '-e', join(extRoot, 'src', 'index.ts'),  // load the public extension entry once
+      '--no-session',
+      '-e', join(extRoot, 'src', 'index.ts'),
     ];
 
-    // Extra env vars populated by the agent block below
     const childEnvExtras: Record<string, string> = {};
 
-    // Append agent system prompt and effective tools if provided
     if (agent) {
       const agentInfo = getAgentInfo(agent, cwd);
-      const requiredOrchestrationTools = mode === 'manager' ? ['ask_manager_question'] : [];
+      const requiredOrchestrationTools = ['ask_manager_question'];
       const effectiveTools = Array.from(
         new Set([...(agentInfo?.tools ?? []), ...requiredOrchestrationTools]),
       );
@@ -230,9 +221,8 @@ export function spawnAndAwait(
     // ── Spawn ──────────────────────────────────────────────────────────────
     const childEnv: Record<string, string | undefined> = {
       ...process.env,
-      // Tell the extension which session file to use for ask_manager_question
       PI_AGENT_SESSION_ID: sessionId,
-      // Pass the process timeout so waitForAnswer uses a consistent deadline
+      PI_AGENT_ROOT_SESSION_ID: resolvedRootId,
       PI_AGENT_TIMEOUT_MS: String(timeoutMs),
       ...childEnvExtras,
     };
@@ -244,6 +234,9 @@ export function spawnAndAwait(
     });
 
     activeProcesses.set(sessionId, proc);
+    if (typeof proc.pid === 'number') {
+      session.setSessionPid(sessionId, proc.pid);
+    }
 
     let stdoutBuf = '';
     let stderrBuf = '';
@@ -252,14 +245,12 @@ export function spawnAndAwait(
       const text = chunk.toString();
       stdoutBuf += text;
 
-      // Stream progress: surface tool calls and question events
       for (const line of text.split('\n')) {
         if (!line.trim()) continue;
         try {
           const event = JSON.parse(line);
           if (event.type === 'tool_execution_start') {
             onProgress?.(`[${agent || 'agent'}] calling ${event.toolName}`);
-            // If subagent is asking manager a question, surface it
             if (event.toolName === 'ask_manager_question') {
               onProgress?.(
                 `[${agent || 'agent'}] ❓ question: ${event.args?.question ?? ''}`,
@@ -276,48 +267,86 @@ export function spawnAndAwait(
 
     // ── Timeout ────────────────────────────────────────────────────────────
     const timer = setTimeout(() => {
-      if (!proc.killed) proc.kill();
+      if (proc.exitCode !== null) return;
+      terminationReasons.set(sessionId, { status: 'timeout', reason: 'timeout_elapsed' });
+      session.updateSessionStatus(sessionId, 'timeout', 'timeout_elapsed');
+      sendTerm(proc);
     }, timeoutMs);
+
+    // ── Abort signal forwarding ────────────────────────────────────────────
+    const onAbort = () => {
+      if (proc.exitCode !== null) return;
+      terminationReasons.set(sessionId, {
+        status: 'killed',
+        reason: 'cancelled_by_signal',
+      });
+      session.updateSessionStatus(sessionId, 'killed', 'cancelled_by_signal');
+      sendTerm(proc);
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
 
     // ── Exit handler ───────────────────────────────────────────────────────
     proc.on('close', (code) => {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
       activeProcesses.delete(sessionId);
+      const termInfo = terminationReasons.get(sessionId);
+      terminationReasons.delete(sessionId);
 
       const elapsedMs = Date.now() - startTime;
       const pendingQuestions = getPendingQuestionsFromSession(sessionId);
-      const success = code === 0;
 
-      if (success) {
+      if (termInfo?.status === 'timeout') {
+        session.deleteSession(sessionId);
+        resolve({
+          sessionId, agent: agent || 'default', task, success: false,
+          output: '', error: `Timed out after ${timeoutMs}ms`, reason: termInfo.reason,
+          elapsedMs, pendingQuestions,
+        });
+        return;
+      }
+
+      if (termInfo?.status === 'killed') {
+        session.deleteSession(sessionId);
+        resolve({
+          sessionId, agent: agent || 'default', task, success: false,
+          output: '', error: `Cancelled: ${termInfo.reason}`, reason: termInfo.reason,
+          elapsedMs, pendingQuestions,
+        });
+        return;
+      }
+
+      if (code === 0) {
         session.updateSessionStatus(sessionId, 'complete');
         session.deleteSession(sessionId);
         const output = extractFinalText(stdoutBuf);
-        resolve({ sessionId, agent: agent || 'default', task, success: true, output, elapsedMs, pendingQuestions });
-      } else if (proc.killed) {
-        session.updateSessionStatus(sessionId, 'killed');
-        session.deleteSession(sessionId);
         resolve({
-          sessionId, agent: agent || 'default', task, success: false,
-          output: '', error: `Timed out after ${timeoutMs}ms`, elapsedMs, pendingQuestions,
+          sessionId, agent: agent || 'default', task, success: true,
+          output, elapsedMs, pendingQuestions,
         });
-      } else {
-        session.updateSessionStatus(sessionId, 'error');
-        session.deleteSession(sessionId);
-        resolve({
-          sessionId, agent: agent || 'default', task, success: false,
-          output: '', error: stderrBuf || `Exit code ${code}`, elapsedMs, pendingQuestions,
-        });
+        return;
       }
+
+      session.updateSessionStatus(sessionId, 'error', `exit_code_${code}`);
+      session.deleteSession(sessionId);
+      resolve({
+        sessionId, agent: agent || 'default', task, success: false,
+        output: '', error: stderrBuf || `Exit code ${code}`, reason: `exit_code_${code}`,
+        elapsedMs, pendingQuestions,
+      });
     });
 
     proc.on('error', (err) => {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
       activeProcesses.delete(sessionId);
-      session.updateSessionStatus(sessionId, 'error');
+      terminationReasons.delete(sessionId);
+      session.updateSessionStatus(sessionId, 'error', 'spawn_error');
       session.deleteSession(sessionId);
       resolve({
         sessionId, agent: agent || 'default', task, success: false,
-        output: '', error: err.message, elapsedMs: Date.now() - startTime, pendingQuestions: [],
+        output: '', error: err.message, reason: 'spawn_error',
+        elapsedMs: Date.now() - startTime, pendingQuestions: [],
       });
     });
   });
@@ -336,13 +365,11 @@ interface StreamMessage {
 
 function extractFinalText(stdout: string): string {
   const lines = stdout.split('\n').filter(Boolean);
-  // Walk backwards looking for agent_end
   for (let i = lines.length - 1; i >= 0; i--) {
     try {
       const event = JSON.parse(lines[i]) as { type?: string; messages?: StreamMessage[] };
       if (event.type === 'agent_end') {
         const messages = event.messages ?? [];
-        // Find the last assistant message with text content
         for (let j = messages.length - 1; j >= 0; j--) {
           const msg = messages[j];
           if (msg.role === 'assistant') {
@@ -356,7 +383,6 @@ function extractFinalText(stdout: string): string {
       }
     } catch {}
   }
-  // Fallback: concatenate all text_delta events
   const texts: string[] = [];
   for (const line of lines) {
     try {
@@ -384,14 +410,29 @@ function getPendingQuestionsFromSession(sessionId: string): Array<{ questionId: 
 // KILL
 // ============================================
 
-export function killSubagent(sessionId: string): boolean {
+const SIGKILL_GRACE_MS = 3000;
+
+function sendTerm(proc: ReturnType<typeof childSpawn>): void {
+  if (proc.exitCode !== null) return;
+  try {
+    proc.kill('SIGTERM');
+  } catch {}
+  setTimeout(() => {
+    if (proc.exitCode === null) {
+      try {
+        proc.kill('SIGKILL');
+      } catch {}
+    }
+  }, SIGKILL_GRACE_MS);
+}
+
+export function killSubagent(sessionId: string, reason = 'cancelled_by_user'): boolean {
   const proc = activeProcesses.get(sessionId);
-  if (proc && !proc.killed) {
-    proc.kill();
-    // Status update + cleanup happen in the 'close' handler after the process exits
-    return true;
-  }
-  return false;
+  if (!proc || proc.exitCode !== null) return false;
+  terminationReasons.set(sessionId, { status: 'killed', reason });
+  session.updateSessionStatus(sessionId, 'killed', reason);
+  sendTerm(proc);
+  return true;
 }
 
 export function getActiveSubagents(): string[] {

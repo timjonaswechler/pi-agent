@@ -3,6 +3,9 @@
 
 process.env.PI_AGENT_SESSION_DIR = '/tmp/pi-agent-test-sessions';
 process.env.PI_AGENT_BUILTIN_TEAMS_DIR = '/Users/tim-jonaswechler/.pi/agent/extensions/pi-agent/test/fixtures/teams';
+// Pin a deterministic orchestration root so tests that write session files
+// directly can match the root the scoped queries will use.
+process.env.PI_AGENT_ROOT_SESSION_ID = 'root-test';
 
 import { beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';

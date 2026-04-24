@@ -2,7 +2,8 @@ import { dirname, join } from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
-const extRoot = dirname(dirname(dirname(dirname(__filename))));
+// src/shared/paths.ts → src/shared/ → src/ → extension root
+const extRoot = dirname(dirname(dirname(__filename)));
 
 export function getExtensionRoot(): string {
   return extRoot;

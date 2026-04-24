@@ -244,6 +244,7 @@ describe('command flows with the mock Pi test runtime', () => {
       subagentId: 'reviewer',
       status: 'running',
       pendingQuestions: [],
+      rootSessionId: 'root-test',
       createdAt: Date.now(),
       lastActivity: Date.now(),
     };
@@ -252,6 +253,7 @@ describe('command flows with the mock Pi test runtime', () => {
       subagentId: 'clarifier',
       status: 'waiting_manager',
       pendingQuestions: [],
+      rootSessionId: 'root-test',
       createdAt: Date.now(),
       lastActivity: Date.now(),
     };
@@ -309,6 +311,7 @@ describe('command flows with the mock Pi test runtime', () => {
       subagentId: 'reviewer',
       status: 'running',
       pendingQuestions: [],
+      rootSessionId: 'root-test',
       createdAt: Date.now(),
       lastActivity: Date.now(),
     };

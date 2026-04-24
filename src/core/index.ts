@@ -15,6 +15,7 @@ import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
 import * as commands from '../features/teams/index.ts';
 import * as tools from './tools/index.ts';
 import { registerUserInputTools } from '../features/user-input/index.ts';
+import { reapOrphanSessions, getOrchestrationRootId } from '../features/session/index.ts';
 
 export * from './types.ts';
 
@@ -33,8 +34,27 @@ export function registerExtension(api: ExtensionAPI): void {
   // by another extension in the same session)
   registerUserInputTools(api);
 
-  // Startup notification (only in interactive sessions)
+  const forcedActiveTools = process.env.PI_AGENT_ACTIVE_TOOLS
+    ?.split(',')
+    .map((tool) => tool.trim())
+    .filter(Boolean);
+
+  // Startup notification + orphan reap (only for non-subagent sessions)
   api.on('session_start', async (_event, ctx) => {
+    if (forcedActiveTools && forcedActiveTools.length > 0) {
+      api.setActiveTools(forcedActiveTools);
+    }
+
+    // Only reap in top-level Pi windows, not spawned subagent processes
+    if (!process.env.PI_AGENT_SESSION_ID) {
+      // Initialize the orchestration root id early so it's stable
+      getOrchestrationRootId();
+      const reaped = reapOrphanSessions();
+      if (reaped > 0) {
+        console.error(`[pi-agent] Reaped ${reaped} orphan session(s).`);
+      }
+    }
+
     if (ctx?.hasUI) {
       ctx.ui.notify('pi-agent loaded — /agent  /team  /list  /kill', 'info');
     }
